@@ -24,6 +24,7 @@ declare module 'vue' {
     FileUploadModal: typeof import('./components/FileUploadModal.vue')['default']
     HelloWorld: typeof import('./components/HelloWorld.vue')['default']
     ImageModal: typeof import('./components/ImageModal.vue')['default']
+    LaunchDetailModal: typeof import('./components/LaunchDetailModal.vue')['default']
     MediaRepository: typeof import('./components/MediaRepository.vue')['default']
     OrderDetailModal: typeof import('./components/OrderDetailModal.vue')['default']
     OrderTimeline: typeof import('./components/OrderTimeline.vue')['default']

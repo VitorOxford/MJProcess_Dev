@@ -258,7 +258,8 @@ const feedback = reactive<Feedback>({ message: '', type: 'success' });
 // --- RULES & VALIDATION ---
 const rules = {
   required: (v: any) => !!v || 'Campo obrigatório.',
-  requiredFile: (v: File[] | null) => (v && v.length > 0) || 'Arquivo é obrigatório.',
+  // CORREÇÃO: Esta regra agora valida corretamente um único arquivo ou um array de arquivos.
+  requiredFile: (v: File[] | File | null) => !!v && (Array.isArray(v) ? v.length > 0 : true) || 'Arquivo é obrigatório.',
   positive: (v: number | null) => (v != null && v > 0) || 'O valor deve ser maior que zero.',
 };
 
@@ -276,7 +277,8 @@ const isStep2Valid = computed(() => {
         item.fabric_type &&
         item.stamp_ref.trim() &&
         item.quantity_meters && item.quantity_meters > 0 &&
-        item.stamp_image_file && item.stamp_image_file.length > 0 &&
+        !!item.stamp_image_file && // <-- CORREÇÃO: Apenas verifica se um arquivo foi selecionado
+        (Array.isArray(item.stamp_image_file) ? item.stamp_image_file.length > 0 : true) && // Garante que se for array, não está vazio
         item.design_tag
     );
 });
