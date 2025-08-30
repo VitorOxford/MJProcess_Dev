@@ -213,7 +213,6 @@ const onDragEnd = async (event: any) => {
 
     const newDate = newDateStr ? newDateStr : null;
     try {
-        // CORREÇÃO: Atualiza a tabela 'production_schedule'
         const { error } = await supabase
             .from('production_schedule')
             .update({ actual_delivery_date: newDate })
@@ -234,7 +233,6 @@ const onDragEnd = async (event: any) => {
 
 const confirmDelivery = async (order: Order) => {
   try {
-    // CORREÇÃO: Atualiza a tabela 'production_schedule'
     const { error } = await supabase
         .from('production_schedule')
         .update({ delivery_confirmed_at: new Date().toISOString() })
@@ -248,7 +246,6 @@ const confirmDelivery = async (order: Order) => {
 
 const rejectDelivery = async (order: Order) => {
     try {
-        // CORREÇÃO: Atualiza a tabela 'production_schedule'
         const { error } = await supabase
             .from('production_schedule')
             .update({ delivery_confirmed_at: null, actual_delivery_date: null })
@@ -274,7 +271,6 @@ const formatDate = (date: Date | string | null | undefined, formatString: string
 const fetchDeliveryOrders = async () => {
   loading.value = true;
   try {
-    // CORREÇÃO: O SELECT agora faz um join explícito para pegar os dados corretos
     const { data, error } = await supabase
       .from('orders')
       .select(`
@@ -287,7 +283,6 @@ const fetchDeliveryOrders = async () => {
 
     if (error) throw error;
 
-    // CORREÇÃO: Mapeia os dados do join para o objeto principal
     allOrders.value = (data || []).map((o: any) => ({
         ...o,
         actual_delivery_date: o.production_schedule[0]?.actual_delivery_date ? parseISO(o.production_schedule[0].actual_delivery_date) : null,
@@ -305,7 +300,6 @@ onMounted(fetchDeliveryOrders);
 </script>
 
 <style scoped lang="scss">
-/* (Estilos mantidos) */
 .delivery-container { padding: 1rem; }
 .delivery-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; }
 .delivery-column { background-color: rgba(30, 30, 35, 0.7); border-radius: 16px; display: flex; flex-direction: column; border: 1px solid rgba(255, 255, 255, 0.1); max-height: calc(100vh - 280px); }

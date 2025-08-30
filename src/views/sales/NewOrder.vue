@@ -199,7 +199,7 @@ import { supabase } from '@/api/supabase';
 import { useUserStore } from '@/stores/user';
 import type { VForm } from 'vuetify/components';
 
-// --- TYPES ---
+// --- TYPES (CORRIGIDO) ---
 type StockItem = {
   fabric_type: string;
   available_meters: number;
@@ -207,13 +207,13 @@ type StockItem = {
 type OrderHeader = {
   customer_name: string;
   has_down_payment: boolean;
-  down_payment_proof_file: File[] | null;
+  down_payment_proof_file: File | null; // Alterado para File | null
 };
 type OrderItem = {
   fabric_type: string | null;
   stamp_ref: string;
   quantity_meters: number | null;
-  stamp_image_file: File[];
+  stamp_image_file: File | null; // Alterado para File | null
   notes: string;
   design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização';
 };
@@ -247,7 +247,7 @@ const createNewItem = (): OrderItem => ({
   fabric_type: null,
   stamp_ref: '',
   quantity_meters: null,
-  stamp_image_file: [],
+  stamp_image_file: null, // Alterado para null
   notes: '',
   design_tag: 'Desenvolvimento',
 });
@@ -255,18 +255,16 @@ const createNewItem = (): OrderItem => ({
 const orderItems = ref<OrderItem[]>([createNewItem()]);
 const feedback = reactive<Feedback>({ message: '', type: 'success' });
 
-// --- RULES & VALIDATION ---
+// --- RULES & VALIDATION (CORRIGIDO) ---
 const rules = {
   required: (v: any) => !!v || 'Campo obrigatório.',
-  // CORREÇÃO: Esta regra agora valida corretamente um único arquivo ou um array de arquivos.
-  requiredFile: (v: File[] | File | null) => !!v && (Array.isArray(v) ? v.length > 0 : true) || 'Arquivo é obrigatório.',
+  requiredFile: (v: File | null) => !!v || 'Arquivo é obrigatório.',
   positive: (v: number | null) => (v != null && v > 0) || 'O valor deve ser maior que zero.',
 };
 
-// CORREÇÃO: Validação separada por etapa para maior clareza
 const isStep1Valid = computed(() => {
     if (!orderHeader.customer_name?.trim()) return false;
-    if (orderHeader.has_down_payment && (!orderHeader.down_payment_proof_file || orderHeader.down_payment_proof_file.length === 0)) {
+    if (orderHeader.has_down_payment && !orderHeader.down_payment_proof_file) {
         return false;
     }
     return true;
@@ -277,11 +275,11 @@ const isStep2Valid = computed(() => {
         item.fabric_type &&
         item.stamp_ref.trim() &&
         item.quantity_meters && item.quantity_meters > 0 &&
-        !!item.stamp_image_file && // <-- CORREÇÃO: Apenas verifica se um arquivo foi selecionado
-        (Array.isArray(item.stamp_image_file) ? item.stamp_image_file.length > 0 : true) && // Garante que se for array, não está vazio
+        !!item.stamp_image_file &&
         item.design_tag
     );
 });
+
 
 const nextStep = async () => {
     if (step1Form.value) {
@@ -311,7 +309,6 @@ const removeItem = (index: number) => orderItems.value.splice(index, 1);
 const fetchStock = async () => {
   loadingStock.value = true;
   try {
-    // CORREÇÃO: Buscar todos os dados do estoque
     const { data, error } = await supabase.from('stock').select('*').order('fabric_type');
     if (error) throw error;
     stockItems.value = data || [];
@@ -347,15 +344,16 @@ const submitLaunch = async () => {
 
   try {
     let proofPublicUrl: string | null = null;
-    if (orderHeader.has_down_payment && orderHeader.down_payment_proof_file?.[0]) {
-      const file = orderHeader.down_payment_proof_file[0];
+    if (orderHeader.has_down_payment && orderHeader.down_payment_proof_file) {
+      const file = orderHeader.down_payment_proof_file;
       const filePath = `proofs/${Date.now()}-${file.name.replace(/\s/g, '_')}`;
       const path = await uploadFile(file, 'proofs', filePath);
       proofPublicUrl = supabase.storage.from('proofs').getPublicUrl(path).data.publicUrl;
     }
 
     const itemsPayload = await Promise.all(orderItems.value.map(async (item, index) => {
-        const file = item.stamp_image_file![0];
+        // Correção principal aqui: Acessa o arquivo diretamente
+        const file = item.stamp_image_file!;
         const filePath = `arts/${Date.now()}-item${index}-${file.name.replace(/\s/g, '_')}`;
         const path = await uploadFile(file, 'arts', filePath);
         const publicUrl = supabase.storage.from('arts').getPublicUrl(path).data.publicUrl;
@@ -402,7 +400,6 @@ onMounted(fetchStock);
 </script>
 
 <style scoped lang="scss">
-/* Estilos mantidos da versão anterior */
 .glassmorphism-card-order {
   backdrop-filter: blur(15px);
   background-color: rgba(25, 25, 30, 0.7);

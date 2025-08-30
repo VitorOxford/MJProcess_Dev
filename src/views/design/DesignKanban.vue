@@ -25,19 +25,25 @@
             group="orders"
             item-key="id"
             class="column-content custom-scrollbar"
-            :disabled="true"
+            :disabled="column.id === 4"
           >
             <template #item="{ element: order }">
                <div :data-id="order.id" @mousemove="onCardMouseMove">
-                  <v-card class="order-card my-2" variant="flat" @click="openLaunchModal(order)">
+                  <v-card class="order-card my-2" variant="flat" @click="openModalForOrder(order)">
                      <div class="card-border"></div>
                      <div class="card-shine"></div>
                      <v-card-text class="card-content">
                        <p class="font-weight-bold text-body-1">{{ order.customer_name }}</p>
                        <p class="text-caption text-medium-emphasis mt-1">Vendedor: {{ order.created_by.full_name }}</p>
                        <v-divider class="my-2"></v-divider>
-                       <v-chip size="small">{{ order.order_items.length }} {{ order.order_items.length > 1 ? 'itens' : 'item' }}</v-chip>
+                       <v-chip size="small">{{ order.is_launch ? `${order.order_items.length} itens` : 'Pedido Único' }}</v-chip>
                      </v-card-text>
+                      <v-card-actions v-if="column.id === 4" class="justify-center pa-2">
+                        <v-btn color="success" variant="flat" block @click.stop="releaseToProduction(order)">
+                          <v-icon start>mdi-send-check</v-icon>
+                          Liberar para Produção
+                        </v-btn>
+                      </v-card-actions>
                   </v-card>
                </div>
             </template>
@@ -56,6 +62,7 @@
       @close="closeLaunchModal"
       @approve="handleDesignerApproval"
       @sendToSeller="openUploadModal"
+      @releaseToProduction="releaseToProduction"
     />
     <FileUploadModal
       :show="showUploadModal"
@@ -68,18 +75,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, onActivated } from 'vue';
 import { supabase } from '@/api/supabase';
 import { useUserStore } from '@/stores/user';
 import draggable from 'vuedraggable';
 import LaunchDetailModal from '@/components/LaunchDetailModal.vue';
 import FileUploadModal from '@/components/FileUploadModal.vue';
 
-// Types
-type OrderItem = { id: string; status: string; design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização'; [key: string]: any };
-type Order = { id: string; status: string; order_items: OrderItem[]; [key: string]: any };
+type OrderItem = { id: string; status: string; design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização'; order_id: string; [key: string]: any };
+type Order = { id: string; status: string; is_launch: boolean; order_items: OrderItem[]; [key: string]: any };
 
-// State
 const loading = ref(true);
 const allDesignOrders = ref<Order[]>([]);
 const userStore = useUserStore();
@@ -89,28 +94,31 @@ const showUploadModal = ref(false);
 const selectedItem = ref<OrderItem | null>(null);
 const uploadModalTitle = ref('');
 
-// --- LÓGICA DAS COLUNAS E FILTROS ---
-// CORREÇÃO: Filtra os pedidos com base na TAG de maior prioridade dos itens PENDENTES
+// *** LÓGICA DE FILTRAGEM CORRIGIDA (REMOVIDO 'is_launch') ***
 const developmentOrders = computed(() => allDesignOrders.value.filter(order =>
-    !order.order_items.some(item => item.design_tag === 'Alteração' && item.status === 'design_pending') &&
-    order.order_items.some(item => item.design_tag === 'Desenvolvimento' && item.status === 'design_pending')
+    order.status === 'design_pending' &&
+    order.order_items.some(item => item.design_tag === 'Desenvolvimento') &&
+    !order.order_items.some(item => item.design_tag === 'Alteração')
 ));
 
 const alterationOrders = computed(() => allDesignOrders.value.filter(order =>
-    order.order_items.some(item => item.design_tag === 'Alteração' && item.status === 'design_pending')
+    order.status === 'design_pending' &&
+    order.order_items.some(item => item.design_tag === 'Alteração')
 ));
 
 const finalizationOrders = computed(() => allDesignOrders.value.filter(order =>
-    !order.order_items.some(item => (item.design_tag === 'Alteração' || item.design_tag === 'Desenvolvimento') && item.status === 'design_pending') &&
-    order.order_items.some(item => item.design_tag === 'Finalização' && item.status === 'design_pending')
+    order.status === 'design_pending' &&
+    order.order_items.some(item => item.design_tag === 'Finalização') &&
+    !order.order_items.some(item => ['Desenvolvimento', 'Alteração'].includes(item.design_tag))
 ));
 
+const approvedOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'customer_approval'));
 
-// CORREÇÃO: Nomes das colunas corretos
 const columns = computed(() => [
   { id: 1, title: 'Desenvolvimento', icon: 'mdi-lightbulb-on-outline', color: '#40c4ff', orders: developmentOrders.value },
   { id: 2, title: 'Alteração', icon: 'mdi-swap-horizontal-bold', color: '#ffab40', orders: alterationOrders.value },
   { id: 3, title: 'Finalização', icon: 'mdi-flag-checkered', color: '#26A69A', orders: finalizationOrders.value },
+  { id: 4, title: 'Aprovados', icon: 'mdi-check-decagram', color: '#4CAF50', orders: approvedOrders.value },
 ]);
 
 const onCardMouseMove = (e: MouseEvent) => {
@@ -125,11 +133,12 @@ const onCardMouseMove = (e: MouseEvent) => {
 const fetchDesignOrders = async () => {
   loading.value = true;
   try {
-    // CORREÇÃO: Busca apenas pedidos que são "Lançamentos"
     const { data, error } = await supabase.from('orders')
-      .select(`id, customer_name, status, created_by:profiles!created_by(full_name), order_items(*)`)
-      .eq('status', 'design_pending')
-      .eq('is_launch', true); // <-- SÓ PEGA OS NOVOS LANÇAMENTOS
+      .select(`
+        id, customer_name, status, is_launch, created_by:profiles!created_by(full_name),
+        order_items(id, order_id, stamp_ref, fabric_type, quantity_meters, notes, stamp_image_url, status, design_tag, is_op_generated)
+      `)
+      .in('status', ['design_pending', 'customer_approval']);
     if (error) throw error;
     allDesignOrders.value = data || [];
   } finally {
@@ -137,8 +146,9 @@ const fetchDesignOrders = async () => {
   }
 };
 
-const openLaunchModal = (order: Order) => {
+const openModalForOrder = (order: Order) => {
   selectedOrder.value = order;
+  // O modal agora é usado para todos os tipos, pois mesmo pedidos únicos têm "order_items"
   showLaunchModal.value = true;
 };
 
@@ -149,6 +159,7 @@ const closeLaunchModal = () => {
 
 const openUploadModal = (item: OrderItem) => {
     selectedItem.value = item;
+    selectedOrder.value = allDesignOrders.value.find(o => o.id === item.order_id) || null;
     uploadModalTitle.value = `Enviar Arte para "${item.stamp_ref}"`;
     showUploadModal.value = true;
 };
@@ -166,25 +177,41 @@ const handleUploadSuccess = async (fileUrl: string) => {
 const updateItemStatus = async (item: OrderItem, newStatus: string, fileUrl?: string) => {
     try {
         const { error } = await supabase.rpc('update_order_item_status', {
-            p_item_id: item.id, p_new_status: newStatus,
-            p_final_art_url: fileUrl, p_profile_id: userStore.profile?.id
+            p_item_id: item.id,
+            p_new_status: newStatus,
+            p_final_art_url: fileUrl || null,
+            p_profile_id: userStore.profile?.id
         });
         if (error) throw error;
-        await fetchDesignOrders(); // Recarrega a lista principal
-        if (selectedOrder.value) { // Se o modal estiver aberto, recarrega seus dados
+        await fetchDesignOrders();
+        if (selectedOrder.value) {
           const { data } = await supabase.from('orders').select(`*, created_by:profiles!created_by(full_name), order_items(*)`).eq('id', selectedOrder.value.id).single();
           selectedOrder.value = data;
         }
-    } catch (err) {
+    } catch (err: any) {
         console.error("Erro ao atualizar status do item:", err);
     }
 };
 
+const releaseToProduction = async (order: Order) => {
+    try {
+        const { error } = await supabase
+            .from('orders')
+            .update({ status: 'production_queue' })
+            .eq('id', order.id);
+        if (error) throw error;
+        await fetchDesignOrders();
+        if(showLaunchModal.value) showLaunchModal.value = false;
+    } catch (err: any) {
+        console.error("Erro ao liberar para produção:", err);
+    }
+}
+
+onActivated(fetchDesignOrders);
 onMounted(fetchDesignOrders);
 </script>
 
 <style scoped lang="scss">
-/* ESTILOS RESTAURADOS DO SEU KANBAN ORIGINAL */
 @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-8px); } 100% { transform: translateY(0px); } }
 .design-kanban-page { position: relative; z-index: 1; display: flex; flex-direction: column; }
 .kanban-board-container { width: 100%; overflow-x: auto; padding-bottom: 2rem; flex-grow: 1; }
@@ -195,8 +222,6 @@ onMounted(fetchDesignOrders);
 .column-content { padding: 0.5rem 1rem 1rem 1rem; flex-grow: 1; min-height: 200px; overflow-y: auto; }
 .order-card { cursor: pointer; background-color: rgba(35, 35, 45, 0.8); border-radius: 12px; position: relative; overflow: hidden; border: 1px solid transparent; transition: transform 0.2s ease-out; .card-content { z-index: 2; } .card-border { position: absolute; inset: 0; border-radius: inherit; background: radial-gradient(400px circle at var(--mouse-x) var(--mouse-y), rgba(255, 255, 255, 0.2), transparent 40%); opacity: 0; transition: opacity 0.4s; } &:hover .card-border { opacity: 1; } }
 .empty-column { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 2rem; color: #616161; }
-.ghost-card { opacity: 0.5; background: rgba(255, 255, 255, 0.1); border: 2px dashed rgba(var(--v-theme-primary), 0.5); border-radius: 12px; }
-.dragging-card { box-shadow: 0 20px 40px rgba(0,0,0,0.5); transform: scale(1.05); }
 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.2); border-radius: 3px; }

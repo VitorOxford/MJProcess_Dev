@@ -57,9 +57,10 @@
                 </div>
               </div>
               <div class="d-flex align-center">
-                <v-chip size="small" :color="statusColorMap[item.status]" label>{{ statusDisplayMap[item.status] || item.status }}</v-chip>
+                <v-icon v-if="isItemReleasedForProd(item.status)" color="success" class="mr-2" title="Item liberado para produção">mdi-check-circle</v-icon>
+                <v-chip size="small" :color="getItemDisplay(item).color" label>{{ getItemDisplay(item).text }}</v-chip>
                 <v-btn
-                  v-if="item.is_op_generated"
+                  v-if="isItemReleasedForProd(item.status) && item.is_op_generated"
                   color="info"
                   variant="text"
                   size="small"
@@ -68,7 +69,7 @@
                   @click="emit('generatePdf', item)"
                 >
                   <v-icon></v-icon>
-                  <v-tooltip activator="parent" location="top">Gerar Ordem de Produção</v-tooltip>
+                  <v-tooltip activator="parent" location="top">Gerar Ordem de Produção (OP)</v-tooltip>
                 </v-btn>
               </div>
             </div>
@@ -109,8 +110,28 @@ const statusColorMap: Record<string, string> = {
     production_queue: 'grey', in_printing: 'blue', in_cutting: 'purple',
     completed: 'success', pending_stock: 'error'
 };
+const tagColorMap: Record<string, string> = {
+    'Desenvolvimento': 'primary', 'Alteração': 'warning', 'Finalização': 'success',
+}
 
-const getStatusColor = (status: string) => statusColorMap[status] || 'grey';
+const isItemReleasedForProd = (status: string) => {
+    const releasedStatuses = ['approved_by_designer', 'approved_by_seller', 'production_queue', 'in_printing', 'in_cutting', 'completed'];
+    return releasedStatuses.includes(status);
+};
+
+// *** LÓGICA DE EXIBIÇÃO CORRIGIDA AQUI ***
+const getItemDisplay = (item: any) => {
+    if (order.value?.status === 'design_pending') {
+        return {
+            text: item.design_tag,
+            color: tagColorMap[item.design_tag] || 'default'
+        }
+    }
+    return {
+        text: statusDisplayMap[item.status] || item.status,
+        color: statusColorMap[item.status] || 'default'
+    }
+}
 
 const fetchOrder = async (id: string) => {
   if (!id) return;

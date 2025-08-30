@@ -130,20 +130,20 @@ const fetchOrderForApproval = async () => {
       .single();
 
     if (fetchError || !data) throw new Error('Pedido não encontrado ou sem itens para aprovação.');
-
     order.value = data;
 
     if (itemsToApprove.value.length === 0) {
-      // Se não houver mais itens para aprovar neste pedido, volta para a home.
-      router.push({ name: 'Home' });
+      router.push({ name: 'Approvals' });
     }
-
-  } catch (e: any) { error.value = e.message; }
-  finally { loading.value = false; }
+  } catch (e: any) {
+    error.value = e.message;
+  } finally {
+    loading.value = false;
+  }
 };
 
 const approveItem = async (item: OrderItem) => {
-    await processDecision(item.id, 'approved_by_seller');
+    await processDecision(item.id, 'approved_by_seller', `Arte para o item "${item.stamp_ref}" aprovada pelo vendedor.`);
 };
 
 const openRejectModal = (item: OrderItem) => {
@@ -158,7 +158,11 @@ const rejectItem = async () => {
   showRejectModal.value = false;
 };
 
-const processDecision = async (itemId: string, decision: string, comment: string = '') => {
+const processDecision = async (itemId: string, decision: string, comment: string) => {
+  if (!comment) {
+      error.value = 'A descrição da ação não pode ser vazia.';
+      return;
+  }
   loading.value = true;
   try {
     const { error: rpcError } = await supabase.rpc('process_seller_item_decision', {
@@ -169,7 +173,6 @@ const processDecision = async (itemId: string, decision: string, comment: string
     });
     if (rpcError) throw rpcError;
 
-    // Recarrega os dados para ver se ainda há itens pendentes
     await fetchOrderForApproval();
   } catch(e: any) {
     error.value = `Erro ao processar decisão: ${e.message}`;
@@ -179,7 +182,6 @@ const processDecision = async (itemId: string, decision: string, comment: string
 };
 
 onMounted(fetchOrderForApproval);
-
 </script>
 
 <style scoped lang="scss">

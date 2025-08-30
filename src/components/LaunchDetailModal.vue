@@ -12,11 +12,23 @@
         <p class="text-medium-emphasis mb-6">Vendedor: {{ order.created_by.full_name }}</p>
 
         <div v-for="item in order.order_items" :key="item.id" class="item-management-row">
-          <v-img :src="item.stamp_image_url" class="item-thumbnail" cover></v-img>
+          <v-img :src="item.stamp_image_url" class="item-thumbnail" cover>
+             <template v-slot:placeholder>
+                <div class="d-flex align-center justify-center fill-height">
+                    <v-progress-circular color="grey-lighten-4" indeterminate></v-progress-circular>
+                </div>
+            </template>
+          </v-img>
           <div class="item-info">
             <div class="font-weight-bold">{{ item.stamp_ref }}</div>
             <div class="text-caption">{{ item.fabric_type }} - {{ item.quantity_meters }}m</div>
-            <v-chip size="small" :color="tagColors[item.design_tag]" label class="mt-2">{{ item.design_tag }}</v-chip>
+
+            <p v-if="item.notes" class="text-caption text-amber-lighten-2 mt-2 font-italic">
+              <v-icon start size="x-small">mdi-comment-quote-outline</v-icon>
+              {{ item.notes }}
+            </p>
+
+            <v-chip v-if="item.status === 'design_pending'" size="small" :color="tagColors[item.design_tag]" label class="mt-2">{{ item.design_tag }}</v-chip>
           </div>
           <v-spacer></v-spacer>
 
@@ -25,7 +37,7 @@
               <template v-slot:activator="{ props }">
                 <v-checkbox-btn
                   v-bind="props"
-                  v-if="item.status.includes('approved')"
+                  v-if="isItemApproved(item.status)"
                   :model-value="item.is_op_generated"
                   @update:modelValue="(val) => handleCheckChange(item, val)"
                   color="info"
@@ -34,7 +46,7 @@
               </template>
             </v-tooltip>
 
-            <v-chip v-if="item.status.includes('approved')" color="success" variant="flat">
+            <v-chip v-if="isItemApproved(item.status)" color="success" variant="flat">
               <v-icon start>mdi-check</v-icon>
               Aprovado
             </v-chip>
@@ -60,6 +72,14 @@
             </div>
           </div>
         </div>
+
+        <div v-if="canBeReleased" class="text-center mt-8">
+            <v-btn color="success" size="large" variant="flat" @click="emit('releaseToProduction', order)">
+                <v-icon start>mdi-send-check-outline</v-icon>
+                Liberar Lançamento para Produção
+            </v-btn>
+        </div>
+
       </v-card-text>
     </v-card>
   </v-dialog>
@@ -68,19 +88,30 @@
 <script setup lang="ts">
 import { supabase } from '@/api/supabase';
 import { useUserStore } from '@/stores/user';
+import { computed } from 'vue';
 
-defineProps({
+const props = defineProps({
   show: Boolean,
   order: Object as () => any | null,
 });
 
-const emit = defineEmits(['close', 'approve', 'sendToSeller']);
+const emit = defineEmits(['close', 'approve', 'sendToSeller', 'releaseToProduction']);
 
 const tagColors = {
   'Desenvolvimento': 'primary',
   'Alteração': 'warning',
   'Finalização': 'success',
 };
+
+const isItemApproved = (status: string) => {
+    return ['approved_by_designer', 'approved_by_seller', 'production_queue'].includes(status);
+}
+
+const canBeReleased = computed(() => {
+    if (!props.order || !props.order.order_items) return false;
+    return props.order.order_items.every(item => isItemApproved(item.status));
+});
+
 
 const handleCheckChange = async (item: any, isChecked: boolean) => {
   const userStore = useUserStore();
@@ -91,10 +122,9 @@ const handleCheckChange = async (item: any, isChecked: boolean) => {
       p_profile_id: userStore.profile?.id,
     });
     if (error) throw error;
-    item.is_op_generated = isChecked; // Atualiza o estado localmente no modal
+    item.is_op_generated = isChecked;
   } catch (err) {
     console.error("Erro ao atualizar o 'check' do item:", err);
-    // Opcional: reverter a mudança na UI se a DB falhar
     item.is_op_generated = !isChecked;
   }
 };
@@ -120,6 +150,7 @@ const handleCheckChange = async (item: any, isChecked: boolean) => {
   height: 70px;
   border-radius: 8px;
   flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.1);
 }
 .item-info {
   flex-grow: 1;

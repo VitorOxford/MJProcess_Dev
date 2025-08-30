@@ -200,7 +200,8 @@ const allNavItems = [
   { icon: 'mdi-check-decagram-outline', title: 'Aprovar Pedidos', value: 'approvals', to: { name: 'Approvals' }, roles: ['vendedor', 'designer', 'admin'] },
   { icon: 'mdi-plus-box-outline', title: 'Novo Pedido', value: 'new-order', to: { name: 'NewOrder' }, roles: ['vendedor', 'admin'] },
   { icon: 'mdi-calendar-check-outline', title: 'Agenda de Produção', value: 'orders-calendar', to: { name: 'Orders' }, roles: ['vendedor', 'designer', 'producao', 'admin'] },
-  { icon: 'mdi-list-status', title: 'Acompanhamento', value: 'order-status', to: { name: 'OrderStatus' }, roles: ['vendedor', 'designer', 'producao', 'admin'] },
+  // ITEM REMOVIDO
+  // { icon: 'mdi-list-status', title: 'Acompanhamento', value: 'order-status', to: { name: 'OrderStatus' }, roles: ['vendedor', 'designer', 'producao', 'admin'] },
   { icon: 'mdi-factory', title: 'Fila de Produção', value: 'production-kanban', to: { name: 'ProductionKanban' }, roles: ['producao', 'admin'] },
   { icon: 'mdi-cog-sync-outline', title: 'Em Produção', value: 'in-production', to: { name: 'InProduction' }, roles: ['producao', 'admin'] },
   { icon: 'mdi-palette-swatch-outline', title: 'Design', value: 'design-kanban', to: { name: 'DesignKanban' }, roles: ['designer', 'admin'] },
