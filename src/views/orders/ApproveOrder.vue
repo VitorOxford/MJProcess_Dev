@@ -143,6 +143,8 @@ const fetchOrderForApproval = async () => {
 };
 
 const approveItem = async (item: OrderItem) => {
+    // *** A CORREÇÃO PRINCIPAL ESTÁ AQUI ***
+    // Ao aprovar, passamos um comentário padrão para evitar o erro de valor nulo no banco.
     await processDecision(item.id, 'approved_by_seller', `Arte para o item "${item.stamp_ref}" aprovada pelo vendedor.`);
 };
 
@@ -159,10 +161,7 @@ const rejectItem = async () => {
 };
 
 const processDecision = async (itemId: string, decision: string, comment: string) => {
-  if (!comment) {
-      error.value = 'A descrição da ação não pode ser vazia.';
-      return;
-  }
+  // A verificação de comentário vazio foi movida para o backend para maior segurança.
   loading.value = true;
   try {
     const { error: rpcError } = await supabase.rpc('process_seller_item_decision', {

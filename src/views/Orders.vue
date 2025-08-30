@@ -107,11 +107,11 @@
               <v-card v-for="entry in getScheduledEntriesForDay(day.date)" :key="entry.id" class="order-card-kanban my-2">
                 <v-card-text class="pa-2 d-flex flex-column" @click="openDetailModal(entry.orders.id)">
                     <p class="font-weight-bold text-body-2 text-truncate">{{ entry.orders.customer_name }}</p>
-                    <p class="text-caption text-grey-lighten-1 mt-1">{{ entry.orders.details.fabric_type }}</p>
+                    <p class="text-caption text-grey-lighten-1 mt-1">{{ entry.orders.details?.fabric_type || 'N/A' }}</p>
                     <v-spacer></v-spacer>
                     <div class="d-flex justify-space-between align-center mt-2">
                       <p class="text-caption text-grey">{{ entry.orders.creator?.full_name || 'N/A' }}</p>
-                      <v-chip size="x-small" :color="getMachineTypeForFabric(entry.orders.details.fabric_type) === 'MESA' ? 'cyan' : 'amber'" variant="flat">{{ entry.quantity_meters.toLocaleString('pt-BR') }}m</v-chip>
+                      <v-chip size="x-small" :color="getMachineTypeForFabric(entry.orders.details?.fabric_type || '') === 'MESA' ? 'cyan' : 'amber'" variant="flat">{{ entry.quantity_meters.toLocaleString('pt-BR') }}m</v-chip>
                     </div>
                 </v-card-text>
                  <v-card-actions v-if="userStore.isAdmin" class="pa-1 justify-center">
@@ -164,14 +164,14 @@
                   <v-list-item lines="three" @click="openDetailModal(entry.orders.id)">
                     <v-list-item-title class="font-weight-bold text-body-1">{{ entry.orders.customer_name }}</v-list-item-title>
                     <v-list-item-subtitle>
-                      {{ entry.orders.details.fabric_type }} <br>
+                      {{ entry.orders.details?.fabric_type || 'N/A' }} <br>
                       <div class="d-flex justify-space-between align-center mt-1">
                         <span class="text-grey-lighten-2">Por: {{ entry.orders.creator?.full_name || 'N/A' }}</span>
                       </div>
                     </v-list-item-subtitle>
                     <template v-slot:append>
                       <div class="text-right">
-                        <v-chip :color="getMachineTypeForFabric(entry.orders.details.fabric_type) === 'MESA' ? 'cyan' : 'amber'" variant="flat" class="mb-1">{{ entry.quantity_meters.toLocaleString('pt-BR') }}m</v-chip>
+                        <v-chip :color="getMachineTypeForFabric(entry.orders.details?.fabric_type || '') === 'MESA' ? 'cyan' : 'amber'" variant="flat" class="mb-1">{{ entry.quantity_meters.toLocaleString('pt-BR') }}m</v-chip>
                       </div>
                     </template>
                   </v-list-item>
@@ -282,7 +282,7 @@ type OrderItem = {
 type Order = {
   id: string; customer_name: string; status: string; created_at: string;
   quantity_meters: number; is_launch: boolean;
-  details: { fabric_type: string; stamp_details: string; };
+  details: { fabric_type: string; stamp_details: string; } | null; // <-- ACEITA NULO
   creator?: { full_name: string; };
   order_items: OrderItem[];
 };

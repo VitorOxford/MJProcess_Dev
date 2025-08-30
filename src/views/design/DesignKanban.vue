@@ -94,24 +94,10 @@ const showUploadModal = ref(false);
 const selectedItem = ref<OrderItem | null>(null);
 const uploadModalTitle = ref('');
 
-// *** LÓGICA DE FILTRAGEM CORRIGIDA (REMOVIDO 'is_launch') ***
-const developmentOrders = computed(() => allDesignOrders.value.filter(order =>
-    order.status === 'design_pending' &&
-    order.order_items.some(item => item.design_tag === 'Desenvolvimento') &&
-    !order.order_items.some(item => item.design_tag === 'Alteração')
-));
-
-const alterationOrders = computed(() => allDesignOrders.value.filter(order =>
-    order.status === 'design_pending' &&
-    order.order_items.some(item => item.design_tag === 'Alteração')
-));
-
-const finalizationOrders = computed(() => allDesignOrders.value.filter(order =>
-    order.status === 'design_pending' &&
-    order.order_items.some(item => item.design_tag === 'Finalização') &&
-    !order.order_items.some(item => ['Desenvolvimento', 'Alteração'].includes(item.design_tag))
-));
-
+// *** LÓGICA DE FILTRAGEM CORRIGIDA E FINAL ***
+const developmentOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'design_pending' && order.order_items.some(item => item.design_tag === 'Desenvolvimento')));
+const alterationOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'design_pending' && order.order_items.some(item => item.design_tag === 'Alteração')));
+const finalizationOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'design_pending' && order.order_items.some(item => item.design_tag === 'Finalização')));
 const approvedOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'customer_approval'));
 
 const columns = computed(() => [
@@ -134,10 +120,7 @@ const fetchDesignOrders = async () => {
   loading.value = true;
   try {
     const { data, error } = await supabase.from('orders')
-      .select(`
-        id, customer_name, status, is_launch, created_by:profiles!created_by(full_name),
-        order_items(id, order_id, stamp_ref, fabric_type, quantity_meters, notes, stamp_image_url, status, design_tag, is_op_generated)
-      `)
+      .select(`id, customer_name, status, is_launch, created_by:profiles!created_by(full_name), order_items(*)`)
       .in('status', ['design_pending', 'customer_approval']);
     if (error) throw error;
     allDesignOrders.value = data || [];
@@ -148,7 +131,6 @@ const fetchDesignOrders = async () => {
 
 const openModalForOrder = (order: Order) => {
   selectedOrder.value = order;
-  // O modal agora é usado para todos os tipos, pois mesmo pedidos únicos têm "order_items"
   showLaunchModal.value = true;
 };
 
@@ -176,35 +158,27 @@ const handleUploadSuccess = async (fileUrl: string) => {
 
 const updateItemStatus = async (item: OrderItem, newStatus: string, fileUrl?: string) => {
     try {
-        const { error } = await supabase.rpc('update_order_item_status', {
-            p_item_id: item.id,
-            p_new_status: newStatus,
-            p_final_art_url: fileUrl || null,
-            p_profile_id: userStore.profile?.id
-        });
+        const { error } = await supabase.rpc('update_order_item_status', { p_item_id: item.id, p_new_status: newStatus, p_final_art_url: fileUrl || null, p_profile_id: userStore.profile?.id });
         if (error) throw error;
         await fetchDesignOrders();
         if (selectedOrder.value) {
           const { data } = await supabase.from('orders').select(`*, created_by:profiles!created_by(full_name), order_items(*)`).eq('id', selectedOrder.value.id).single();
           selectedOrder.value = data;
         }
-    } catch (err: any) {
-        console.error("Erro ao atualizar status do item:", err);
-    }
+    } catch (err: any) { console.error("Erro ao atualizar status do item:", err); }
 };
 
 const releaseToProduction = async (order: Order) => {
+    // *** CORREÇÃO: Chama a nova função dedicada ***
     try {
-        const { error } = await supabase
-            .from('orders')
-            .update({ status: 'production_queue' })
-            .eq('id', order.id);
+        const { error } = await supabase.rpc('release_order_to_production', {
+            p_order_id: order.id,
+            p_profile_id: userStore.profile?.id
+        });
         if (error) throw error;
         await fetchDesignOrders();
         if(showLaunchModal.value) showLaunchModal.value = false;
-    } catch (err: any) {
-        console.error("Erro ao liberar para produção:", err);
-    }
+    } catch (err: any) { console.error("Erro ao liberar para produção:", err); }
 }
 
 onActivated(fetchDesignOrders);

@@ -18,7 +18,13 @@
                     <v-progress-circular color="grey-lighten-4" indeterminate></v-progress-circular>
                 </div>
             </template>
+            <template v-slot:error>
+              <div class="d-flex align-center justify-center fill-height" style="background-color: rgba(0,0,0,0.3);">
+                <v-icon color="warning" size="32">mdi-image-off-outline</v-icon>
+              </div>
+            </template>
           </v-img>
+
           <div class="item-info">
             <div class="font-weight-bold">{{ item.stamp_ref }}</div>
             <div class="text-caption">{{ item.fabric_type }} - {{ item.quantity_meters }}m</div>
