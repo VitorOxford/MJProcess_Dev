@@ -273,6 +273,7 @@ import { format, startOfWeek, addDays, subDays, isSameDay, parseISO, endOfWeek, 
 import { ptBR } from 'date-fns/locale';
 import OrderDetailModal from '@/components/OrderDetailModal.vue';
 import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 type OrderItem = {
   id: string; fabric_type: string; stamp_ref: string; quantity_meters: number;
@@ -282,7 +283,7 @@ type OrderItem = {
 type Order = {
   id: string; customer_name: string; status: string; created_at: string;
   quantity_meters: number; is_launch: boolean;
-  details: { fabric_type: string; stamp_details: string; } | null; // <-- ACEITA NULO
+  details: { fabric_type: string; stamp_details: string; } | null;
   creator?: { full_name: string; };
   order_items: OrderItem[];
 };
@@ -313,6 +314,18 @@ const modalHeaders = [
     { title: 'Metragem', key: 'quantity_meters' },
     { title: 'Criado em', key: 'created_at' },
 ];
+
+const statusDisplayMap: Record<string, string> = {
+    design_pending: 'No Design',
+    customer_approval: 'Aprovação Vendedor',
+    approved_by_designer: 'Aprovado (Designer)',
+    approved_by_seller: 'Aprovado (Vendedor)',
+    production_queue: 'Fila de Produção',
+    in_printing: 'Em Impressão',
+    in_cutting: 'Em Corte',
+    completed: 'Finalizado',
+    pending_stock: 'Aguardando Estoque'
+};
 
 const ordersPendingStock = computed(() => allOrders.value.filter(o => o.status === 'pending_stock'));
 const ordersPendingSchedule = computed(() => allOrders.value.filter(o => o.status === 'production_queue'));
@@ -437,7 +450,7 @@ const fetchAllData = async () => {
         .not('status', 'in', '("completed", "delivered")'),
       supabase
         .from('production_schedule')
-        .select(`*, orders:order_id (*, creator:profiles!created_by(full_name), details)`)
+        .select(`*, orders:order_id (*, creator:profiles!created_by(full_name), details, order_items(*))`)
         .gte('scheduled_date', format(subDays(new Date(), 90), 'yyyy-MM-dd'))
     ]);
 
@@ -457,32 +470,154 @@ const fetchAllData = async () => {
 const getShortDate = (date: Date) => format(date, 'dd/MM');
 const formatDate = (dateString: string) => format(new Date(dateString), "dd/MM/yy 'às' HH:mm", { locale: ptBR });
 
-const generatePdf = (item: OrderItem) => {
-  const doc = new jsPDF();
-  const parentOrder = allOrders.value.find(o => o.order_items.some(oi => oi.id === item.id))
-      || scheduleEntries.value.find(e => e.orders.order_items.some(oi => oi.id === item.id))?.orders;
+const imageToBase64 = (url: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx?.drawImage(img, 0, 0);
+            const dataURL = canvas.toDataURL('image/png');
+            resolve(dataURL);
+        };
+        img.onerror = reject;
+        img.src = url;
+    });
+};
 
+const generatePdf = async (item: OrderItem) => {
+  let parentOrder = allOrders.value.find(o => Array.isArray(o.order_items) && o.order_items.some(oi => oi.id === item.id));
 
   if (!parentOrder) {
-      alert("Não foi possível encontrar os dados do pedido pai para gerar o PDF.");
+      const scheduleEntry = scheduleEntries.value.find(e => e.orders && Array.isArray(e.orders.order_items) && e.orders.order_items.some(oi => oi.id === item.id));
+      parentOrder = scheduleEntry?.orders;
+  }
+
+  if (!parentOrder) {
+      alert("Erro: não foi possível encontrar os dados do pedido principal para gerar o PDF.");
       return;
   }
 
-  doc.setFontSize(18);
-  doc.text('Ordem de Produção', 14, 22);
-  doc.setFontSize(12);
-  doc.text(`Cliente: ${parentOrder.customer_name}`, 14, 40);
-  doc.text(`Vendedor: ${parentOrder.creator?.full_name || 'N/A'}`, 14, 48);
-  doc.text(`Data: ${format(new Date(), 'dd/MM/yyyy')}`, 14, 56);
-  doc.line(14, 60, 196, 60);
-  doc.text(`Base (Tecido): ${item.fabric_type}`, 14, 70);
-  doc.text(`Quantidade: ${item.quantity_meters}m`, 14, 78);
-  doc.text(`Referência da Arte: ${item.stamp_ref}`, 14, 86);
-  doc.save(`OP-${parentOrder.customer_name}-${item.stamp_ref}.pdf`);
+  try {
+    const doc = new jsPDF();
+    const pageHeight = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.width || doc.internal.pageSize.getWidth();
+
+    const logoUrl = 'https://cdn.shopify.com/s/files/1/0661/4574/6991/files/Design_sem_nome_054257ac-8323-43b0-848d-dc5fac9fafa3.png?v=1755884541';
+    const [logoBase64, artBase64] = await Promise.all([
+      imageToBase64(logoUrl),
+      imageToBase64(item.stamp_image_url)
+    ]);
+
+    const logoProps = doc.getImageProperties(logoBase64);
+    const logoWidth = 40; // Diminui a largura da logo
+    const logoHeight = (logoProps.height * logoWidth) / logoProps.width; // Calcula altura proporcional
+    doc.addImage(logoBase64, 'PNG', 15, 12, logoWidth, logoHeight);
+
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    const companyInfo = [
+      "MR JACKY - 20.631.721/0001-07",
+      "RUA LUIZ MONTANHAN, 1302 TIRO DE GUERRA - TIETE - SP CEP: 18.532-000",
+      "Fone/Celular: (15) 99847-8789 | E-mail: mrjackyfinanceiro@gmail.com"
+    ];
+    // Move o texto da empresa para não sobrepor a logo
+    doc.text(companyInfo, pageWidth - 15, 15, { align: 'right' });
+
+    doc.setFontSize(18);
+    doc.setTextColor(0);
+    doc.text(`ORDEM DE PRODUÇÃO #${item.id.substring(0, 8).toUpperCase()}`, 15, 45);
+    doc.setLineWidth(0.5);
+    doc.line(15, 48, pageWidth - 15, 48);
+
+    autoTable(doc, {
+        startY: 55,
+        head: [['CLIENTE', 'VENDEDOR', 'DATA DE EMISSÃO']],
+        body: [[
+            parentOrder.customer_name,
+            parentOrder.creator?.full_name || 'N/A',
+            format(new Date(), 'dd/MM/yyyy')
+        ]],
+        theme: 'striped',
+        headStyles: { fillColor: [41, 128, 185] }
+    });
+
+    autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 10,
+        head: [['PRODUTO (BASE)', 'SERVIÇO (ESTAMPA)', 'QUANTIDADE (MT)']],
+        body: [[
+            item.fabric_type,
+            item.stamp_ref,
+            item.quantity_meters.toLocaleString('pt-BR') + 'm'
+        ]],
+        theme: 'grid',
+        headStyles: { fillColor: [41, 128, 185] }
+    });
+
+    let lastY = (doc as any).lastAutoTable.finalY;
+
+    if (parentOrder.is_launch && parentOrder.order_items.length > 0) {
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text('ITENS DO LANÇAMENTO', 15, lastY + 12);
+
+        autoTable(doc, {
+            startY: lastY + 15,
+            head: [['#', 'Ref. Estampa', 'Produto', 'Qtd (m)', 'Status']],
+            body: parentOrder.order_items.map((it, index) => [
+                index + 1,
+                it.stamp_ref,
+                it.fabric_type,
+                it.quantity_meters,
+                statusDisplayMap[it.status] || it.status // Adiciona o status aqui
+            ]),
+            theme: 'grid',
+            headStyles: { fillColor: [80, 80, 80], textColor: 255 },
+            styles: { fontSize: 9, cellPadding: 2 },
+            columnStyles: { 0: { cellWidth: 10 }, 3: { halign: 'right' }, 4: { halign: 'center' } },
+            didDrawCell: (data) => {
+                if (data.row.raw && data.row.raw[1] === item.stamp_ref) {
+                    doc.setFillColor(230, 230, 230); // Cinza claro para destacar
+                    doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
+                    doc.setTextColor(0);
+                }
+            }
+        });
+        lastY = (doc as any).lastAutoTable.finalY;
+    }
+
+    const artStartY = lastY + 12;
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ARTE APROVADA', 15, artStartY);
+
+    const imgProps = doc.getImageProperties(artBase64);
+    const maxImgWidth = pageWidth - 120; // Diminui a largura máxima da imagem
+    const maxImgHeight = pageHeight - artStartY - 30;
+    const ratio = Math.min(maxImgWidth / imgProps.width, maxImgHeight / imgProps.height);
+    const imgWidth = imgProps.width * ratio;
+    const imgHeight = imgProps.height * ratio;
+    const imgX = (pageWidth - imgWidth) / 2;
+
+    doc.addImage(artBase64, 'PNG', imgX, artStartY + 5, imgWidth, imgHeight);
+
+    const footerY = pageHeight - 15;
+    doc.setFontSize(9);
+    doc.setTextColor(150);
+    doc.text('OP gerada com MJProcess', pageWidth / 2, footerY, { align: 'center' });
+
+    doc.save(`OP-${parentOrder.customer_name}-${item.stamp_ref}.pdf`);
+
+  } catch (error) {
+    console.error("Erro ao gerar PDF:", error);
+    alert("Não foi possível gerar o PDF. Verifique se as imagens estão acessíveis e tente novamente.");
+  }
 };
 
 onActivated(fetchAllData);
-
 onMounted(fetchAllData);
 </script>
 

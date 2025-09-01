@@ -100,10 +100,9 @@ import { ref, onMounted } from 'vue';
 import { supabase } from '@/api/supabase';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-// Importe uma biblioteca de PDF, como jsPDF
 import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
-// --- TYPES ---
 type OrderItem = {
   id: string; fabric_type: string; stamp_ref: string; quantity_meters: number;
   stamp_image_url: string; status: string; is_op_generated: boolean;
@@ -115,12 +114,10 @@ type Order = {
   order_items: OrderItem[];
 };
 
-// --- STATE ---
 const loading = ref(true);
 const activeOrders = ref<Order[]>([]);
 const expanded = ref([]);
 
-// --- DATA & COMPUTED ---
 const headers = [
   { title: 'Cliente', key: 'customer_name', sortable: true },
   { title: 'Vendedor', key: 'created_by.full_name' },
@@ -152,7 +149,6 @@ const statusColorMap: Record<string, string> = {
     pending_stock: 'error'
 };
 
-// --- METHODS ---
 const fetchActiveOrders = async () => {
   loading.value = true;
   try {
@@ -163,7 +159,7 @@ const fetchActiveOrders = async () => {
         created_by:profiles!created_by(full_name),
         order_items(*)
       `)
-      .not('status', 'eq', 'completed') // Pega todos que não estão completos
+      .not('status', 'eq', 'completed')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -175,38 +171,150 @@ const fetchActiveOrders = async () => {
   }
 };
 
-const generatePdf = (item: OrderItem) => {
-  // Lógica de geração de PDF
-  const doc = new jsPDF();
-  const parentOrder = activeOrders.value.find(o => o.order_items.some(oi => oi.id === item.id));
+const imageToBase64 = (url: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx?.drawImage(img, 0, 0);
+            const dataURL = canvas.toDataURL('image/png');
+            resolve(dataURL);
+        };
+        img.onerror = reject;
+        img.src = url;
+    });
+};
 
-  doc.setFontSize(18);
-  doc.text('Ordem de Produção', 14, 22);
 
-  doc.setFontSize(12);
-  doc.text(`Cliente: ${parentOrder?.customer_name}`, 14, 40);
-  doc.text(`Vendedor: ${parentOrder?.created_by?.full_name}`, 14, 48);
-  doc.text(`Data: ${format(new Date(), 'dd/MM/yyyy')}`, 14, 56);
+const generatePdf = async (item: OrderItem) => {
+  const parentOrder = activeOrders.value.find(o => Array.isArray(o.order_items) && o.order_items.some(oi => oi.id === item.id));
 
-  doc.line(14, 60, 196, 60); // Linha separadora
+  if (!parentOrder) {
+      alert("Erro: não foi possível encontrar os dados do pedido principal.");
+      return;
+  }
 
-  doc.text(`Base (Tecido): ${item.fabric_type}`, 14, 70);
-  doc.text(`Quantidade: ${item.quantity_meters}m`, 14, 78);
-  doc.text(`Referência da Arte: ${item.stamp_ref}`, 14, 86);
+  try {
+    const doc = new jsPDF();
+    const pageHeight = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.width || doc.internal.pageSize.getWidth();
 
-  // A adição da imagem pode ser complexa e requer que a imagem seja acessível (CORS)
-  // Esta é uma implementação básica.
-  doc.addPage();
-  doc.text('Anexo da Arte', 14, 22);
-  // doc.addImage(item.stamp_image_url, 'JPEG', 15, 40, 180, 160); // Descomente para tentar adicionar a imagem
+    const logoUrl = 'https://cdn.shopify.com/s/files/1/0661/4574/6991/files/Design_sem_nome_054257ac-8323-43b0-848d-dc5fac9fafa3.png?v=1755884541';
+    const [logoBase64, artBase64] = await Promise.all([
+      imageToBase64(logoUrl),
+      imageToBase64(item.stamp_image_url)
+    ]);
 
-  doc.save(`OP-${parentOrder?.customer_name}-${item.stamp_ref}.pdf`);
-  alert('Geração de PDF iniciada. Esta funcionalidade pode exigir ajustes de CORS na sua imagem.');
+    const logoProps = doc.getImageProperties(logoBase64);
+    const logoWidth = 40;
+    const logoHeight = (logoProps.height * logoWidth) / logoProps.width;
+    doc.addImage(logoBase64, 'PNG', 15, 12, logoWidth, logoHeight);
+
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    const companyInfo = [
+      "MR JACKY - 20.631.721/0001-07",
+      "RUA LUIZ MONTANHAN, 1302 TIRO DE GUERRA - TIETE - SP CEP: 18.532-000",
+      "Fone/Celular: (15) 99847-8789 | E-mail: mrjackyfinanceiro@gmail.com"
+    ];
+    doc.text(companyInfo, pageWidth - 15, 15, { align: 'right' });
+
+    doc.setFontSize(18);
+    doc.setTextColor(0);
+    doc.text(`ORDEM DE PRODUÇÃO #${item.id.substring(0, 8).toUpperCase()}`, 15, 45);
+    doc.setLineWidth(0.5);
+    doc.line(15, 48, pageWidth - 15, 48);
+
+    autoTable(doc, {
+        startY: 55,
+        head: [['CLIENTE', 'VENDEDOR', 'DATA DE EMISSÃO']],
+        body: [[
+            parentOrder.customer_name,
+            parentOrder.created_by?.full_name || 'N/A',
+            format(new Date(), 'dd/MM/yyyy')
+        ]],
+        theme: 'striped',
+        headStyles: { fillColor: [41, 128, 185] }
+    });
+
+    autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 10,
+        head: [['PRODUTO (BASE)', 'SERVIÇO (ESTAMPA)', 'QUANTIDADE (MT)']],
+        body: [[
+            item.fabric_type,
+            item.stamp_ref,
+            item.quantity_meters.toLocaleString('pt-BR') + 'm'
+        ]],
+        theme: 'grid',
+        headStyles: { fillColor: [41, 128, 185] }
+    });
+
+    let lastY = (doc as any).lastAutoTable.finalY;
+
+    if (parentOrder.is_launch && parentOrder.order_items.length > 0) {
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text('ITENS DO LANÇAMENTO', 15, lastY + 12);
+
+        autoTable(doc, {
+            startY: lastY + 15,
+            head: [['#', 'Ref. Estampa', 'Produto', 'Qtd (m)', 'Status']],
+            body: parentOrder.order_items.map((it, index) => [
+                index + 1,
+                it.stamp_ref,
+                it.fabric_type,
+                it.quantity_meters,
+                statusDisplayMap[it.status] || it.status
+            ]),
+            theme: 'grid',
+            headStyles: { fillColor: [80, 80, 80], textColor: 255 },
+            styles: { fontSize: 9, cellPadding: 2 },
+            columnStyles: { 0: { cellWidth: 10 }, 3: { halign: 'right' }, 4: { halign: 'center' } },
+            didDrawCell: (data) => {
+                if (data.row.raw && data.row.raw[1] === item.stamp_ref) {
+                    doc.setFillColor(230, 230, 230);
+                    doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
+                    doc.setTextColor(0);
+                }
+            }
+        });
+        lastY = (doc as any).lastAutoTable.finalY;
+    }
+
+    const artStartY = lastY + 12;
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ARTE APROVADA', 15, artStartY);
+
+    const imgProps = doc.getImageProperties(artBase64);
+    const maxImgWidth = pageWidth - 120;
+    const maxImgHeight = pageHeight - artStartY - 30;
+    const ratio = Math.min(maxImgWidth / imgProps.width, maxImgHeight / imgProps.height);
+    const imgWidth = imgProps.width * ratio;
+    const imgHeight = imgProps.height * ratio;
+    const imgX = (pageWidth - imgWidth) / 2;
+
+    doc.addImage(artBase64, 'PNG', imgX, artStartY + 5, imgWidth, imgHeight);
+
+    const footerY = pageHeight - 15;
+    doc.setFontSize(9);
+    doc.setTextColor(150);
+    doc.text('OP gerada com MJProcess', pageWidth / 2, footerY, { align: 'center' });
+
+    doc.save(`OP-${parentOrder.customer_name}-${item.stamp_ref}.pdf`);
+
+  } catch (error) {
+    console.error("Erro ao gerar PDF:", error);
+    alert("Não foi possível gerar o PDF. Verifique se as imagens estão acessíveis e tente novamente.");
+  }
 };
 
 const formatDate = (dateString: string) => format(new Date(dateString), 'dd/MM/yy', { locale: ptBR });
 
-// --- LIFECYCLE ---
 onMounted(fetchActiveOrders);
 
 </script>
