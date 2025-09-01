@@ -38,13 +38,7 @@
                        <v-divider class="my-2"></v-divider>
                        <v-chip size="small">{{ order.is_launch ? `${order.order_items.length} itens` : 'Pedido Único' }}</v-chip>
                      </v-card-text>
-                      <v-card-actions v-if="column.id === 4" class="justify-center pa-2">
-                        <v-btn color="success" variant="flat" block @click.stop="releaseToProduction(order)">
-                          <v-icon start>mdi-send-check</v-icon>
-                          Liberar para Produção
-                        </v-btn>
-                      </v-card-actions>
-                  </v-card>
+                      </v-card>
                </div>
             </template>
           </draggable>

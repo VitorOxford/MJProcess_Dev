@@ -329,7 +329,12 @@ const statusDisplayMap: Record<string, string> = {
 
 const ordersPendingStock = computed(() => allOrders.value.filter(o => o.status === 'pending_stock'));
 const ordersPendingSchedule = computed(() => allOrders.value.filter(o => o.status === 'production_queue'));
-const ordersInDesign = computed(() => allOrders.value.filter(o => o.status === 'design_pending' && o.is_launch));
+
+// *** CORREÇÃO APLICADA AQUI ***
+// Agora, um pedido "em design" (para fins de card fantasma) é qualquer um com status 'design_pending' OU 'customer_approval'.
+const designAndApprovalStatuses = ['design_pending', 'customer_approval'];
+const ordersInDesign = computed(() => allOrders.value.filter(o => designAndApprovalStatuses.includes(o.status) && o.is_launch));
+
 const totalMetersPendingSchedule = computed(() => ordersPendingSchedule.value.reduce((sum, order) => sum + order.quantity_meters, 0));
 
 const ghostLaunches = computed(() => {

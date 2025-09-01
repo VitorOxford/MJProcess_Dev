@@ -58,6 +58,17 @@
               </div>
             </div>
           </v-col>
+
+           <v-col cols="12" sm="6" md="4">
+            <div class="kpi-stat-card">
+              <v-icon class="kpi-icon" color="green-darken-1">mdi-calendar-month-outline</v-icon>
+              <div class="kpi-content">
+                <span class="kpi-value">{{ totalMetersCurrentMonth.toLocaleString('pt-BR') }}m</span>
+                <span class="kpi-title">Metragem do Mês</span>
+              </div>
+            </div>
+          </v-col>
+
            <v-col cols="12" sm="6" md="4">
             <div class="kpi-stat-card">
               <v-icon class="kpi-icon" color="blue-grey-darken-1">mdi-ruler-square-compass</v-icon>
@@ -80,16 +91,16 @@
         <v-window v-model="tab">
           <v-window-item value="all">
             <v-data-table-virtual :headers="headers" :items="activeOrders" class="bg-transparent" hover height="450">
-  <template v-slot:item="{ item }">
-    <tr class="table-row" @click="selectedOrder = item; showDetailModal = true">
-      <td>{{ item.customer_name }}</td>
-      <td>{{ item.stores?.name || 'N/A' }}</td>
-      <td class="text-end">{{ item.quantity_meters }}m</td>
-      <td>{{ formatDate(item.created_at) }}</td>
-      <td><v-chip size="small" :color="statusColorMap[item.status]" label>{{ statusDisplayMap[item.status] }}</v-chip></td>
-    </tr>
-  </template>
-</v-data-table-virtual>
+              <template v-slot:item="{ item }">
+                <tr class="table-row" @click="selectedOrder = item; showDetailModal = true">
+                  <td>{{ item.customer_name }}</td>
+                  <td>{{ item.stores?.name || 'N/A' }}</td>
+                  <td class="text-end">{{ item.quantity_meters }}m</td>
+                  <td>{{ formatDate(item.created_at) }}</td>
+                  <td><v-chip size="small" :color="statusColorMap[item.status]" label>{{ statusDisplayMap[item.status] }}</v-chip></td>
+                </tr>
+              </template>
+            </v-data-table-virtual>
           </v-window-item>
           <v-window-item value="design">
              <v-data-table-virtual :headers="headers" :items="designFilteredOrders" class="bg-transparent" hover height="450">
@@ -183,14 +194,14 @@ const {
   metersInProductionCorrida,
   orders,
   totalMetersPendingApproval,
-  ordersPendingApproval
+  ordersPendingApproval,
+  totalMetersCurrentMonth, // IMPORTANDO O NOVO GETTER
 } = storeToRefs(dashboardStore);
 
-// --- CORREÇÃO APLICADA AQUI ---
 const headers = [
   { title: 'Cliente', key: 'customer_name' },
   { title: 'Loja', key: 'stores.name' },
-  { title: 'Metragem', key: 'quantity_meters', align: 'end' }, // <-- COLUNA ADICIONADA
+  { title: 'Metragem', key: 'quantity_meters', align: 'end' },
   { title: 'Lançamento', key: 'created_at' },
   { title: 'Status', key: 'status' },
 ];
@@ -202,7 +213,6 @@ const downPaymentHeaders = [
     { title: 'Comprovante', key: 'down_payment_proof_url', sortable: false, align: 'center' },
 ];
 
-// --- CORREÇÃO APLICADA AQUI ---
 const statusDisplayMap: Record<string, string> = {
     design_pending: 'Aguardando Design',
     in_design: 'Em Design',
@@ -213,7 +223,7 @@ const statusDisplayMap: Record<string, string> = {
     in_printing: 'Impressão',
     in_cutting: 'Corte',
     completed: 'Finalizado',
-    pending_stock: 'Aguardando Matéria-Prima' // <-- STATUS ADICIONADO
+    pending_stock: 'Aguardando Matéria-Prima'
 };
 
 const statusColorMap: Record<string, string> = {
@@ -226,7 +236,7 @@ const statusColorMap: Record<string, string> = {
     in_printing: 'blue',
     in_cutting: 'orange',
     completed: 'green',
-    pending_stock: 'error' // <-- COR DO STATUS ADICIONADA
+    pending_stock: 'error'
 };
 
 const activeOrders = computed(() => {
@@ -241,7 +251,7 @@ const designFilteredOrders = computed(() => {
 });
 
 const productionFilteredOrders = computed(() => {
-    const productionStatuses = ['production_queue', 'in_printing', 'in_cutting', 'pending_stock']; // Adicionado pending_stock aqui também
+    const productionStatuses = ['production_queue', 'in_printing', 'in_cutting', 'pending_stock'];
     return activeOrders.value.filter(o => productionStatuses.includes(o.status));
 });
 

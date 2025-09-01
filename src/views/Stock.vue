@@ -45,6 +45,10 @@
               </div>
               <v-spacer></v-spacer>
               <div class="text-right">
+                <div v-if="item.meters_per_roll" class="d-flex align-center justify-end mb-1 text-grey-lighten-1">
+                  <v-icon size="small" class="mr-1">mdi-tape-measure</v-icon>
+                  <span class="text-caption font-weight-bold">{{ item.meters_per_roll }}m / Rolo</span>
+                </div>
                 <p class="text-h4 font-weight-bold" :class="getMeterColor(item.available_meters)">
                   {{ item.available_meters.toLocaleString('pt-BR') }}m
                 </p>
@@ -65,6 +69,7 @@ type StockItem = {
   id: string;
   fabric_type: string;
   available_meters: number;
+  meters_per_roll: number | null; // COLUNA NOVA
 };
 
 const loading = ref(true);

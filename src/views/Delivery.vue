@@ -6,6 +6,15 @@
         Agenda de Entregas
       </v-toolbar-title>
       <v-spacer></v-spacer>
+      <v-btn
+        color="white"
+        variant="outlined"
+        prepend-icon="mdi-history"
+        class="mr-4"
+        @click="showHistoryModal = true"
+      >
+        Ver Histórico
+      </v-btn>
       <div class="d-flex align-center">
         <v-btn icon="mdi-chevron-left" variant="text" @click="previousWeek"></v-btn>
         <div class="week-indicator mx-2 text-center" style="min-width: 180px;">
@@ -61,6 +70,9 @@
               <h3 class="column-title text-h6">{{ day.name }}</h3>
               <p class="text-caption text-grey">{{ formatDate(day.date, 'dd/MM') }}</p>
             </div>
+            <v-chip color="primary" variant="tonal" size="small" class="ml-auto">
+              {{ getDayTotalMeters(day.orders) }}m
+            </v-chip>
           </div>
           <draggable
             :list="day.orders"
@@ -111,34 +123,79 @@
                   </v-fade-transition>
               </v-card>
             </template>
+            <template #footer>
+                <div v-for="ghost in getGhostEntriesForDay(day.date)" :key="ghost.id">
+                    <v-card class="order-card ghost-card production-ghost mb-4" elevation="4" @click="openDetailModal(ghost.id)">
+                        <v-card-text>
+                            <p class="font-weight-bold text-subtitle-1">{{ ghost.customer_name }}</p>
+                            <v-chip size="small" variant="tonal" color="purple" class="mt-2">
+                                <v-icon start size="x-small">mdi-progress-wrench</v-icon>
+                                Em Produção
+                            </v-chip>
+                            <p class="info-line"><v-icon size="small">mdi-ruler-square</v-icon> {{ ghost.quantity_meters }}m</p>
+                        </v-card-text>
+                    </v-card>
+                </div>
+            </template>
           </draggable>
         </div>
       </div>
-
-      <v-card class="mt-8 history-card" color="rgba(30,30,35,0.8)">
-        <v-toolbar color="transparent">
-          <v-toolbar-title class="font-weight-bold">
-            <v-icon start>mdi-history</v-icon>
-            Histórico de Entregas (Últimos 30 dias)
-          </v-toolbar-title>
-        </v-toolbar>
-        <v-data-table
-          :headers="historyHeaders"
-          :items="deliveredOrders"
-          class="bg-transparent"
-          item-value="id"
-        >
-          <template v-slot:item.actual_delivery_date="{ item }">
-            <span>{{ formatDate(item.actual_delivery_date, 'dd/MM/yyyy') }}</span>
-          </template>
-          <template v-slot:item.customer_name="{ item }">
-            <span class="font-weight-bold">{{ item.customer_name }}</span>
-          </template>
-        </v-data-table>
-      </v-card>
     </div>
 
     <OrderDetailModal :show="showDetailModal" :order-id="selectedOrderId" @close="showDetailModal = false"/>
+
+    <v-dialog v-model="showHistoryModal" max-width="1200px" persistent>
+        <v-card class="glassmorphism-card-dialog">
+            <v-toolbar color="transparent">
+                <v-toolbar-title class="font-weight-bold">Histórico de Entregas</v-toolbar-title>
+                <v-spacer></v-spacer>
+                <v-btn icon="mdi-close" @click="showHistoryModal = false"></v-btn>
+            </v-toolbar>
+            <v-card-text>
+                <v-row class="mb-4">
+                    <v-col cols="12" md="8">
+                        <v-text-field
+                            v-model="historySearch"
+                            label="Buscar por cliente ou vendedor..."
+                            variant="outlined"
+                            density="compact"
+                            hide-details
+                            clearable
+                        ></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="4">
+                         <v-autocomplete
+                            v-model="selectedFabrics"
+                            :items="fabricTypesForFilter"
+                            label="Filtrar por tecido"
+                            variant="outlined"
+                            density="compact"
+                            multiple
+                            chips
+                            closable-chips
+                            hide-details
+                            clearable
+                        ></v-autocomplete>
+                    </v-col>
+                </v-row>
+                <v-data-table
+                    :headers="historyHeaders"
+                    :items="filteredDeliveredOrders"
+                    class="bg-transparent"
+                    item-value="id"
+                    hover
+                    @click:row="(_, { item }) => openDetailModal(item.id)"
+                >
+                    <template v-slot:item.actual_delivery_date="{ item }">
+                        <span>{{ formatDate(item.actual_delivery_date, 'dd/MM/yyyy') }}</span>
+                    </template>
+                    <template v-slot:item.customer_name="{ item }">
+                        <span class="font-weight-bold">{{ item.customer_name }}</span>
+                    </template>
+                </v-data-table>
+            </v-card-text>
+        </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -152,11 +209,12 @@ import { format, addDays, startOfToday, getDay, isSameDay, parseISO, isBefore, s
 import { ptBR } from 'date-fns/locale';
 
 // Types
-type OrderItem = { id: string; status: string; };
+type OrderItem = { id: string; status: string; fabric_type: string; };
 type Order = {
   id: string; customer_name: string; quantity_meters: number; status: string;
   is_launch: boolean; details: { fabric_type: string; };
   actual_delivery_date: Date | null; delivery_confirmed_at: string | null;
+  production_date: string | null;
   order_items: OrderItem[];
   creator: { full_name: string; } | null;
 };
@@ -169,6 +227,11 @@ const selectedOrderId = ref<string | null>(null);
 const allOrders = ref<Order[]>([]);
 const currentDeliveryWeekStart = ref(startOfWeek(new Date(), { weekStartsOn: 1 }));
 
+const showHistoryModal = ref(false);
+const historySearch = ref('');
+const selectedFabrics = ref<string[]>([]);
+
+
 const historyHeaders = [
   { title: 'Cliente', key: 'customer_name' },
   { title: 'Data da Entrega', key: 'actual_delivery_date' },
@@ -178,11 +241,59 @@ const historyHeaders = [
 
 const toBeScheduledOrders = computed(() => allOrders.value.filter(o => o.status === 'completed' && !o.actual_delivery_date));
 const scheduledOrders = computed(() => allOrders.value.filter(o => !!o.actual_delivery_date));
+
 const deliveredOrders = computed(() => {
-    const thirtyDaysAgo = subDays(startOfToday(), 30);
-    return scheduledOrders.value.filter(o => o.delivery_confirmed_at && o.actual_delivery_date && isBefore(o.actual_delivery_date, startOfToday()) && !isBefore(o.actual_delivery_date, thirtyDaysAgo))
+    return scheduledOrders.value.filter(o => o.delivery_confirmed_at)
         .sort((a,b) => (b.actual_delivery_date?.getTime() || 0) - (a.actual_delivery_date?.getTime() || 0));
 });
+
+const inProductionOrders = computed(() => {
+    return allOrders.value.filter(o =>
+        ['in_printing', 'in_cutting'].includes(o.status) && o.production_date
+    );
+});
+
+const addBusinessDays = (startDate: Date, days: number): Date => {
+  const newDate = new Date(startDate);
+  let addedDays = 0;
+  while (addedDays < days) {
+    newDate.setDate(newDate.getDate() + 1);
+    if (newDate.getDay() !== 0) {
+      addedDays++;
+    }
+  }
+  return newDate;
+};
+
+const getNextDeliveryDay = (date: Date): Date => {
+    const newDate = new Date(date);
+    while (true) {
+        const dayOfWeek = newDate.getDay();
+        if ([2, 4, 6].includes(dayOfWeek)) {
+            return newDate;
+        }
+        newDate.setDate(newDate.getDate() + 1);
+    }
+};
+
+const productionGhosts = computed(() => {
+    return inProductionOrders.value.map(order => {
+        const productionStartDate = addDays(parseISO(order.production_date!), 1);
+        const completionDate = addBusinessDays(productionStartDate, 3);
+        const forecastDeliveryDate = getNextDeliveryDay(completionDate);
+        return { ...order, forecast_delivery_date: forecastDeliveryDate };
+    });
+});
+
+const getGhostEntriesForDay = (date: Date) => {
+    return productionGhosts.value.filter(ghost =>
+        ghost.forecast_delivery_date && isSameDay(ghost.forecast_delivery_date, date)
+    );
+};
+
+const getDayTotalMeters = (orders: Order[]) => {
+    return orders.reduce((sum, order) => sum + order.quantity_meters, 0);
+};
 
 const weekDeliveryDays = computed(() => {
     const weekStart = currentDeliveryWeekStart.value;
@@ -274,12 +385,12 @@ const fetchDeliveryOrders = async () => {
     const { data, error } = await supabase
       .from('orders')
       .select(`
-        id, customer_name, quantity_meters, status, is_launch, details,
+        id, customer_name, quantity_meters, status, is_launch, details, production_date,
         creator:created_by(full_name),
         production_schedule(actual_delivery_date, delivery_confirmed_at),
-        order_items(id, status)
+        order_items(id, status, fabric_type)
       `)
-      .in('status', ['completed', 'delivered']);
+      .in('status', ['completed', 'delivered', 'in_printing', 'in_cutting']);
 
     if (error) throw error;
 
@@ -294,6 +405,45 @@ const fetchDeliveryOrders = async () => {
     loading.value = false;
   }
 };
+
+const fabricTypesForFilter = computed(() => {
+    const fabrics = new Set<string>();
+    deliveredOrders.value.forEach(order => {
+        if (order.is_launch) {
+            order.order_items.forEach(item => {
+                if (item.fabric_type) fabrics.add(item.fabric_type);
+            });
+        } else if (order.details?.fabric_type) {
+            fabrics.add(order.details.fabric_type);
+        }
+    });
+    return Array.from(fabrics).sort();
+});
+
+const filteredDeliveredOrders = computed(() => {
+    let orders = deliveredOrders.value;
+
+    if (historySearch.value) {
+        const query = historySearch.value.toLowerCase();
+        orders = orders.filter(o =>
+            o.customer_name.toLowerCase().includes(query) ||
+            o.creator?.full_name?.toLowerCase().includes(query)
+        );
+    }
+
+    if (selectedFabrics.value.length > 0) {
+        orders = orders.filter(o => {
+            if (o.is_launch) {
+                return o.order_items.some(item => selectedFabrics.value.includes(item.fabric_type));
+            } else {
+                return o.details?.fabric_type && selectedFabrics.value.includes(o.details.fabric_type);
+            }
+        });
+    }
+
+    return orders;
+});
+
 
 onMounted(fetchDeliveryOrders);
 
@@ -310,8 +460,25 @@ onMounted(fetchDeliveryOrders);
 .order-card:hover { transform: translateY(-4px); border-color: rgba(var(--v-theme-primary), 0.5); }
 .info-line { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: #e0e0e0; margin-top: 4px; }
 .ghost-card { opacity: 0.5; background: rgba(var(--v-theme-primary), 0.2); border: 2px dashed rgba(var(--v-theme-primary), 0.5); }
+.production-ghost {
+    opacity: 0.7;
+    border: 2px dashed rgba(171, 71, 188, 0.5); /* Roxo */
+    background-color: rgba(171, 71, 188, 0.1);
+}
 .actions-overlay { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); padding: 8px; display: flex; justify-content: center; gap: 16px; opacity: 0; transition: opacity 0.2s ease-in-out; }
-.order-card:not(.past-delivery):not(.ghost):hover .actions-overlay { opacity: 1; }
+.order-card:not(.ghost-card):hover .actions-overlay { opacity: 1; }
 .confirmed-icon { position: absolute; top: 8px; right: 8px; font-size: 2rem; opacity: 0.5; }
-.history-card { border-radius: 12px; }
+.order-card.confirmed {
+  background-color: rgba(76, 175, 80, 0.2) !important;
+  border-left: 4px solid #4CAF50;
+}
+.glassmorphism-card-dialog {
+  backdrop-filter: blur(20px) !important;
+  background-color: rgba(30, 30, 30, 0.85) !important;
+  border-radius: 12px !important;
+}
+/* CORREÇÃO APLICADA AQUI */
+:deep(.v-data-table__wrapper tbody tr) {
+  cursor: pointer;
+}
 </style>

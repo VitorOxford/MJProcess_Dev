@@ -6,35 +6,22 @@
         Tabela de Preços
       </v-toolbar-title>
       <v-spacer></v-spacer>
-      <template v-if="!isMobile">
-        <v-text-field
-          v-model="search"
-          variant="solo-filled"
-          flat
-          density="compact"
-          label="Buscar produto..."
-          prepend-inner-icon="mdi-magnify"
-          hide-details
-          style="max-width: 350px;"
-          clearable
-        ></v-text-field>
-      </template>
+      <v-text-field
+        v-model="search"
+        variant="solo-filled"
+        flat
+        density="compact"
+        label="Buscar produto..."
+        prepend-inner-icon="mdi-magnify"
+        hide-details
+        style="max-width: 350px;"
+        clearable
+      ></v-text-field>
     </v-toolbar>
 
     <v-row class="mb-4 px-md-0 px-2" align="center">
       <v-col cols="12" md="auto" class="flex-grow-1 py-0">
-        <v-text-field
-            v-if="isMobile"
-            v-model="search"
-            variant="solo-filled"
-            flat
-            density="compact"
-            label="Buscar produto..."
-            prepend-inner-icon="mdi-magnify"
-            hide-details
-            clearable
-        ></v-text-field>
-      </v-col>
+        </v-col>
       <v-col cols="12" md="auto" class="flex-grow-0 py-0 mt-2 mt-md-0">
         <div class="d-flex align-center justify-end ga-4">
           <div class="d-flex align-center">
@@ -49,78 +36,22 @@
       </v-col>
     </v-row>
 
-    <v-card v-if="!isMobile" class="glassmorphism-card-prices">
-      <v-data-table
-        :headers="headers"
-        :items="filteredProducts"
-        :loading="loading"
-        class="bg-transparent"
-        item-value="id"
-        density="comfortable"
-        hover
+    <div v-if="loading" class="text-center py-16">
+        <v-progress-circular indeterminate color="primary"></v-progress-circular>
+    </div>
+     <div v-else-if="filteredProducts.length === 0" class="text-center text-grey py-16">
+        <v-icon size="48" class="mb-2">mdi-database-off-outline</v-icon>
+        <p>Nenhum produto encontrado.</p>
+    </div>
+    <v-row v-else>
+      <v-col
+        v-for="item in filteredProducts"
+        :key="item.id"
+        cols="12"
+        sm="6"
+        lg="4"
       >
-        <template v-slot:item.name="{ item }">
-          <div class="d-flex align-center py-1">
-            <span class="font-weight-bold mr-3">{{ item.name }}</span>
-            <v-chip
-              :color="getUnitChipColor(item.unit)"
-              size="small"
-              variant="flat"
-              label
-            >
-              {{ item.unit }}
-            </v-chip>
-          </div>
-        </template>
-        <template v-slot:item.price_se="{ item }">
-          <div v-if="canViewSE" class="price-cell">
-            <div class="price-item">
-              <span class="price-label">À Vista</span>
-              <v-chip color="teal" size="small" label variant="flat">{{ formatCurrency(item.price_se_cash) }}</v-chip>
-            </div>
-            <div class="price-item">
-              <span class="price-label">Prazo</span>
-              <v-chip color="indigo" size="small" label variant="flat">{{ formatCurrency(item.price_se_term) }}</v-chip>
-            </div>
-          </div>
-          <v-chip v-else size="small" variant="tonal" color="grey">N/A</v-chip>
-        </template>
-        <template v-slot:item.price_ne="{ item }">
-          <div v-if="canViewNE" class="price-cell">
-            <div class="price-item">
-              <span class="price-label">À Vista</span>
-              <v-chip color="teal" size="small" label variant="flat">{{ formatCurrency(item.price_ne_cash) }}</v-chip>
-            </div>
-            <div class="price-item">
-              <span class="price-label">Prazo</span>
-              <v-chip color="indigo" size="small" label variant="flat">{{ formatCurrency(item.price_ne_term) }}</v-chip>
-            </div>
-          </div>
-          <v-chip v-else size="small" variant="tonal" color="grey">N/A</v-chip>
-        </template>
-        <template v-slot:loading>
-          <v-skeleton-loader type="table-row@10"></v-skeleton-loader>
-        </template>
-        <template v-slot:no-data>
-          <div class="py-12 text-center text-grey">
-            <v-icon size="48" class="mb-2">mdi-database-off-outline</v-icon>
-            <p>Nenhum produto encontrado na tabela de preços.</p>
-          </div>
-        </template>
-      </v-data-table>
-    </v-card>
-
-    <div v-else>
-        <div v-if="loading" class="text-center py-16">
-            <v-progress-circular indeterminate color="primary"></v-progress-circular>
-        </div>
-         <div v-else-if="filteredProducts.length === 0" class="text-center text-grey py-16">
-            <v-icon size="48" class="mb-2">mdi-database-off-outline</v-icon>
-            <p>Nenhum produto encontrado.</p>
-        </div>
         <v-card
-            v-for="item in filteredProducts"
-            :key="item.id"
             class="mb-3 mobile-price-card"
             :class="`unit--${item.unit}`"
             variant="flat"
@@ -187,7 +118,8 @@
                 </div>
             </v-card-text>
         </v-card>
-    </div>
+      </v-col>
+    </v-row>
   </v-container>
 </template>
 
@@ -203,7 +135,7 @@ type Product = {
   composition: string;
   grammage: string;
   unit: 'metro' | 'kg';
-  rendimento?: string | null; // NOVO CAMPO
+  rendimento?: string | null;
   price_se_cash: number;
   price_se_term: number;
   price_ne_cash: number;
@@ -218,16 +150,6 @@ const products = ref<Product[]>([]);
 
 const canViewSE = computed(() => userStore.profile?.allowed_regions?.includes('SE') || userStore.isAdmin);
 const canViewNE = computed(() => userStore.profile?.allowed_regions?.includes('NE') || userStore.isAdmin);
-
-const headers = computed(() => [
-  { title: 'Produto', key: 'name', width: '35%' },
-  { title: 'Composição', key: 'composition' },
-  { title: 'Gramatura', key: 'grammage' },
-  // NOVA COLUNA DE RENDIMENTO
-  { title: 'Rendimento', key: 'rendimento' },
-  ...(canViewSE.value ? [{ title: 'Preço Sudeste', key: 'price_se', align: 'start' }] : []),
-  ...(canViewNE.value ? [{ title: 'Preço Nordeste', key: 'price_ne', align: 'start' }] : []),
-]);
 
 const filteredProducts = computed(() => {
   if (!search.value) return products.value;
@@ -263,44 +185,12 @@ onMounted(fetchPrices);
 </script>
 
 <style scoped lang="scss">
-.glassmorphism-card-prices {
-  backdrop-filter: blur(15px);
-  -webkit-backdrop-filter: blur(15px);
-  background-color: rgba(25, 25, 30, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-}
-
-:deep(tbody tr:hover) {
-  background-color: rgba(var(--v-theme-on-surface), 0.15) !important;
-}
-
-/* --- Estilos para a tabela Desktop --- */
-.price-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 0;
-}
-.price-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.price-label {
-  font-size: 0.8rem;
-  color: #a0a0a0;
-  font-weight: 500;
-}
-
-
-/* --- Estilos para os cards Mobile --- */
 .mobile-price-card {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-left: 4px solid;
   border-radius: 8px;
   transition: all 0.2s ease-in-out;
+  height: 100%; /* Garante que os cards na mesma linha tenham a mesma altura */
 
   &:hover {
     transform: translateY(-4px);
@@ -366,7 +256,6 @@ onMounted(fetchPrices);
   }
 }
 
-/* --- ESTILOS PARA DIFERENCIAÇÃO POR UNIDADE --- */
 .mobile-price-card.unit--kg {
   background-color: rgba(103, 58, 183, 0.1);
   border-left-color: #7E57C2;
