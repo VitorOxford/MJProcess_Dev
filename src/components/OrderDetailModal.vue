@@ -41,14 +41,29 @@
 
         <v-divider class="my-4"></v-divider>
 
+        <div v-if="focusedItem && order.is_launch" class="focused-item-card pa-4 mb-4">
+            <h4 class="text-subtitle-1 font-weight-bold mb-2">Item em Destaque</h4>
+            <div class="d-flex align-center">
+                 <v-img :src="focusedItem.stamp_image_url" class="item-thumbnail mr-4" cover></v-img>
+                <div>
+                  <span class="font-weight-bold">{{ focusedItem.stamp_ref }}</span>
+                  <span class="text-caption d-block">{{ focusedItem.fabric_type }} - {{ focusedItem.quantity_meters }}m</span>
+                </div>
+                <v-spacer></v-spacer>
+                 <v-chip size="small" :color="getItemDisplay(focusedItem).color" label>{{ getItemDisplay(focusedItem).text }}</v-chip>
+            </div>
+        </div>
+
         <div v-if="!order.is_launch && order.details">
              <h4 class="text-subtitle-1 font-weight-bold mb-2">Observações da Estampa</h4>
              <p class="text-body-2 text-medium-emphasis pa-2">{{ order.details.stamp_details }}</p>
         </div>
 
         <div v-else-if="order.is_launch">
-            <h4 class="text-subtitle-1 font-weight-bold mb-2">Itens do Lançamento</h4>
-            <div v-for="item in order.order_items" :key="item.id" class="item-row-detail">
+            <h4 class="text-subtitle-1 font-weight-bold mb-2">
+                {{ focusedItem ? 'Outros Itens do Lançamento' : 'Itens do Lançamento' }}
+            </h4>
+            <div v-for="item in otherItems" :key="item.id" class="item-row-detail">
               <div class="d-flex align-center">
                 <v-img :src="item.stamp_image_url" class="item-thumbnail mr-4" cover></v-img>
                 <div>
@@ -74,7 +89,7 @@
               </div>
             </div>
         </div>
-      </v-card-text>
+         </v-card-text>
 
       <v-card-actions class="dialog-footer">
         <v-spacer></v-spacer>
@@ -85,18 +100,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { supabase } from '@/api/supabase';
 
 const props = defineProps({
   show: Boolean,
   orderId: String,
+  itemId: String, // Opcional: para saber qual item focar
 });
 const emit = defineEmits(['close', 'generatePdf']);
 
 const order = ref<any | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
+
+// Computeds para focar no item clicado e mostrar os outros
+const focusedItem = computed(() => {
+    if (!props.itemId || !order.value || !order.value.order_items) return null;
+    return order.value.order_items.find((item: any) => item.id === props.itemId);
+});
+
+const otherItems = computed(() => {
+    if (!order.value || !order.value.order_items) return [];
+    if (!focusedItem.value) return order.value.order_items; // Mostra todos se nenhum focado
+    return order.value.order_items.filter((item: any) => item.id !== focusedItem.value.id);
+});
 
 const statusDisplayMap: Record<string, string> = {
     design_pending: 'No Design', in_design: 'Em Design', customer_approval: 'Aprovação Vendedor',
@@ -111,7 +139,7 @@ const statusColorMap: Record<string, string> = {
     completed: 'success', pending_stock: 'error'
 };
 const tagColorMap: Record<string, string> = {
-    'Desenvolvimento': 'primary', 'Alteração': 'warning', 'Finalização': 'success',
+    'Desenvolvimento': 'primary', 'Alteração': 'warning', 'Finalização': 'success', 'Aprovado': 'green'
 }
 
 const isItemReleasedForProd = (status: string) => {
@@ -119,7 +147,6 @@ const isItemReleasedForProd = (status: string) => {
     return releasedStatuses.includes(status);
 };
 
-// *** LÓGICA DE EXIBIÇÃO CORRIGIDA AQUI ***
 const getItemDisplay = (item: any) => {
     if (order.value?.status === 'design_pending') {
         return {
@@ -183,5 +210,10 @@ watch(() => props.orderId, (newId) => {
   width: 40px;
   height: 40px;
   border-radius: 4px;
+}
+.focused-item-card {
+    background-color: rgba(var(--v-theme-primary-rgb), 0.1);
+    border: 1px solid rgba(var(--v-theme-primary-rgb), 0.3);
+    border-radius: 8px;
 }
 </style>

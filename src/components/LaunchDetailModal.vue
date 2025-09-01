@@ -28,18 +28,32 @@
           <div class="item-info">
             <div class="font-weight-bold">{{ item.stamp_ref }}</div>
             <div class="text-caption">{{ item.fabric_type }} - {{ item.quantity_meters }}m</div>
-
             <p v-if="item.notes" class="text-caption text-amber-lighten-2 mt-2 font-italic">
               <v-icon start size="x-small">mdi-comment-quote-outline</v-icon>
               {{ item.notes }}
             </p>
-
             <v-chip v-if="item.status === 'design_pending'" size="small" :color="tagColors[item.design_tag]" label class="mt-2">{{ item.design_tag }}</v-chip>
           </div>
           <v-spacer></v-spacer>
 
           <div class="item-actions d-flex align-center justify-end">
-            <div v-if="isItemApproved(item.status)" class="d-flex align-center ga-2">
+            <div v-if="isItemInProduction(item.status)" class="d-flex align-center ga-2">
+                <v-chip color="teal" variant="flat">
+                  <v-icon start>mdi-send</v-icon>
+                  Liberado
+                </v-chip>
+                <v-btn
+                  v-if="item.is_op_generated"
+                  color="info"
+                  variant="tonal"
+                  size="small"
+                  @click="emit('generatePdf', item)"
+                >
+                    Gerar OP
+                </v-btn>
+            </div>
+
+            <div v-else-if="isItemApproved(item.status)" class="d-flex align-center ga-2">
                 <v-chip color="success" variant="flat">
                   <v-icon start>mdi-check</v-icon>
                   Aprovado
@@ -48,13 +62,23 @@
                     Liberar Item
                 </v-btn>
             </div>
+
             <v-chip v-else-if="item.status === 'customer_approval'" color="orange" variant="tonal">
               <v-icon start>mdi-account-clock-outline</v-icon>
               Aguardando Vendedor
             </v-chip>
+
             <div v-else class="d-flex flex-column ga-2" style="min-width: 180px;">
               <v-btn
-                v-if="item.design_tag === 'Finalização'"
+                v-if="item.design_tag === 'Aprovado'"
+                color="teal"
+                @click="emit('releaseItem', item)"
+              >
+                <v-icon start>mdi-send</v-icon>
+                Liberar p/ Produção
+              </v-btn>
+              <v-btn
+                v-else-if="item.design_tag === 'Finalização'"
                 color="success"
                 @click="emit('approve', item)"
               >
@@ -68,7 +92,7 @@
                 Enviar para Aprovação
               </v-btn>
             </div>
-          </div>
+            </div>
         </div>
 
         <div v-if="canBeReleased" class="text-center mt-8">
@@ -77,15 +101,12 @@
                 Liberar Lançamento Completo
             </v-btn>
         </div>
-
       </v-card-text>
     </v-card>
   </v-dialog>
 </template>
 
 <script setup lang="ts">
-import { supabase } from '@/api/supabase';
-import { useUserStore } from '@/stores/user';
 import { computed } from 'vue';
 
 const props = defineProps({
@@ -93,10 +114,9 @@ const props = defineProps({
   order: Object as () => any | null,
 });
 
-// EVENTO 'releaseItem' ADICIONADO
-const emit = defineEmits(['close', 'approve', 'sendToSeller', 'releaseToProduction', 'releaseItem']);
+const emit = defineEmits(['close', 'approve', 'sendToSeller', 'releaseToProduction', 'releaseItem', 'generatePdf']);
 
-const tagColors = {
+const tagColors: Record<string, string> = {
   'Desenvolvimento': 'primary',
   'Alteração': 'warning',
   'Finalização': 'success',
@@ -104,14 +124,18 @@ const tagColors = {
 };
 
 const isItemApproved = (status: string) => {
-    // Aprovado pelo vendedor é o gatilho para poder liberar o item
     return status === 'approved_by_seller';
+}
+
+// Nova função para verificar se o item já foi para a fila de produção ou além
+const isItemInProduction = (status: string) => {
+    const productionStatuses = ['production_queue', 'in_printing', 'in_cutting', 'completed'];
+    return productionStatuses.includes(status);
 }
 
 const canBeReleased = computed(() => {
     if (!props.order || !props.order.order_items) return false;
-    // O botão de liberar tudo só aparece se todos os itens estiverem aprovados pelo vendedor
-    return props.order.order_items.every(item => isItemApproved(item.status));
+    return props.order.order_items.every((item: any) => isItemApproved(item.status));
 });
 </script>
 

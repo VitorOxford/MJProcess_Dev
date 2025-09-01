@@ -17,34 +17,35 @@
           <div class="column-header">
             <v-icon :color="column.color" class="mr-3">{{ column.icon }}</v-icon>
             <h3 class="column-title">{{ column.title }}</h3>
-            <v-chip size="small" variant="tonal" class="ml-auto" :color="column.color">{{ column.orders.length }}</v-chip>
+            <v-chip size="small" variant="tonal" class="ml-auto" :color="column.color">{{ column.items.length }}</v-chip>
           </div>
 
           <draggable
-            :list="column.orders"
-            group="orders"
+            :list="column.items"
+            group="items"
             item-key="id"
             class="column-content custom-scrollbar"
             :disabled="column.id === 4"
+            @end="onDragEnd"
           >
-            <template #item="{ element: order }">
-               <div :data-id="order.id" @mousemove="onCardMouseMove">
-                  <v-card class="order-card my-2" variant="flat" @click="openModalForOrder(order)">
+            <template #item="{ element: item }">
+               <div :data-id="item.id" @mousemove="onCardMouseMove">
+                  <v-card class="order-card my-2" variant="flat" @click="openModalForItem(item)">
                      <div class="card-border"></div>
                      <div class="card-shine"></div>
                      <v-card-text class="card-content">
-                       <p class="font-weight-bold text-body-1">{{ order.customer_name }}</p>
-                       <p class="text-caption text-medium-emphasis mt-1">Vendedor: {{ order.created_by.full_name }}</p>
+                       <p class="font-weight-bold text-body-1">{{ item.order.customer_name }}</p>
+                       <p class="text-caption text-medium-emphasis mt-1">Ref: {{ item.stamp_ref }}</p>
                        <v-divider class="my-2"></v-divider>
-                       <v-chip size="small">{{ order.is_launch ? `${order.order_items.length} itens` : 'Pedido Único' }}</v-chip>
+                       <v-chip size="small">{{ item.fabric_type }} - {{ item.quantity_meters }}m</v-chip>
                      </v-card-text>
                   </v-card>
                </div>
             </template>
           </draggable>
-           <div v-if="column.orders.length === 0" class="empty-column">
+           <div v-if="column.items.length === 0" class="empty-column">
               <v-icon size="48" class="mb-2 text-grey-darken-2">mdi-tray-arrow-down</v-icon>
-              <span>Nenhum pedido aqui.</span>
+              <span>Nenhum item aqui.</span>
           </div>
         </div>
       </div>
@@ -77,11 +78,20 @@ import draggable from 'vuedraggable';
 import LaunchDetailModal from '@/components/LaunchDetailModal.vue';
 import FileUploadModal from '@/components/FileUploadModal.vue';
 
-type OrderItem = { id: string; status: string; design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização' | 'Aprovado'; order_id: string; [key: string]: any };
+// --- TIPAGEM ---
+type OrderItem = {
+    id: string;
+    status: string;
+    design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização' | 'Aprovado';
+    order_id: string;
+    order: Order; // Adicionado para ter a referência do pedido pai
+    [key: string]: any
+};
 type Order = { id: string; status: string; is_launch: boolean; order_items: OrderItem[]; [key: string]: any };
 
+// --- ESTADO ---
 const loading = ref(true);
-const allDesignOrders = ref<Order[]>([]);
+const allOrders = ref<Order[]>([]);
 const userStore = useUserStore();
 const showLaunchModal = ref(false);
 const selectedOrder = ref<Order | null>(null);
@@ -89,16 +99,36 @@ const showUploadModal = ref(false);
 const selectedItem = ref<OrderItem | null>(null);
 const uploadModalTitle = ref('');
 
-const developmentOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'design_pending' && order.order_items.some(item => item.design_tag === 'Desenvolvimento')));
-const alterationOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'design_pending' && order.order_items.some(item => item.design_tag === 'Alteração')));
-const finalizationOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'design_pending' && order.order_items.some(item => item.design_tag === 'Finalização')));
-const approvedOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'customer_approval' || order.order_items.some(item => item.status === 'approved_by_seller')));
+// --- LÓGICA PRINCIPAL DE SEPARAÇÃO DOS ITENS ---
+
+// 1. Achatamos todos os itens de todos os pedidos em uma única lista
+const allItems = computed((): OrderItem[] => {
+    return allOrders.value.flatMap(order =>
+        order.order_items.map(item => ({
+            ...item,
+            order: order // Anexa a informação do pedido pai a cada item
+        }))
+    );
+});
+
+// 2. Filtramos os itens em suas respectivas colunas
+const developmentItems = computed(() => allItems.value.filter(item => item.order.status === 'design_pending' && item.design_tag === 'Desenvolvimento'));
+const alterationItems = computed(() => allItems.value.filter(item => item.order.status === 'design_pending' && item.design_tag === 'Alteração'));
+const finalizationItems = computed(() => allItems.value.filter(item => item.order.status === 'design_pending' && item.design_tag === 'Finalização'));
+
+// Um item está na coluna de aprovados se a TAG dele for 'Aprovado' OU se o STATUS dele já foi para a aprovação do vendedor
+const approvedItems = computed(() => allItems.value.filter(item =>
+    item.design_tag === 'Aprovado' ||
+    item.status === 'customer_approval' ||
+    item.status === 'approved_by_seller'
+));
+
 
 const columns = computed(() => [
-  { id: 1, title: 'Desenvolvimento', icon: 'mdi-lightbulb-on-outline', color: '#40c4ff', orders: developmentOrders.value },
-  { id: 2, title: 'Alteração', icon: 'mdi-swap-horizontal-bold', color: '#ffab40', orders: alterationOrders.value },
-  { id: 3, title: 'Finalização', icon: 'mdi-flag-checkered', color: '#26A69A', orders: finalizationOrders.value },
-  { id: 4, title: 'Aprovados', icon: 'mdi-check-decagram', color: '#4CAF50', orders: approvedOrders.value },
+  { id: 1, title: 'Desenvolvimento', icon: 'mdi-lightbulb-on-outline', color: '#40c4ff', items: developmentItems.value },
+  { id: 2, title: 'Alteração', icon: 'mdi-swap-horizontal-bold', color: '#ffab40', items: alterationItems.value },
+  { id: 3, title: 'Finalização', icon: 'mdi-flag-checkered', color: '#26A69A', items: finalizationItems.value },
+  { id: 4, title: 'Aprovados', icon: 'mdi-check-decagram', color: '#4CAF50', items: approvedItems.value },
 ]);
 
 const onCardMouseMove = (e: MouseEvent) => {
@@ -117,14 +147,15 @@ const fetchDesignOrders = async () => {
       .select(`id, customer_name, status, is_launch, created_by:profiles!created_by(full_name), order_items(*)`)
       .in('status', ['design_pending', 'customer_approval']);
     if (error) throw error;
-    allDesignOrders.value = data || [];
+    allOrders.value = data || [];
   } finally {
     loading.value = false;
   }
 };
 
-const openModalForOrder = (order: Order) => {
-  selectedOrder.value = order;
+// Agora o modal abre baseado no item, e pegamos o pedido pai a partir dele
+const openModalForItem = (item: OrderItem) => {
+  selectedOrder.value = item.order;
   showLaunchModal.value = true;
 };
 
@@ -135,7 +166,7 @@ const closeLaunchModal = () => {
 
 const openUploadModal = (item: OrderItem) => {
     selectedItem.value = item;
-    selectedOrder.value = allDesignOrders.value.find(o => o.id === item.order_id) || null;
+    selectedOrder.value = allOrders.value.find(o => o.id === item.order_id) || null;
     uploadModalTitle.value = `Enviar Arte para "${item.stamp_ref}"`;
     showUploadModal.value = true;
 };
@@ -155,6 +186,7 @@ const updateItemStatus = async (item: OrderItem, newStatus: string, fileUrl?: st
         const { error } = await supabase.rpc('update_order_item_status', { p_item_id: item.id, p_new_status: newStatus, p_final_art_url: fileUrl || null, p_profile_id: userStore.profile?.id });
         if (error) throw error;
         await fetchDesignOrders();
+        // Atualiza o pedido selecionado se o modal ainda estiver aberto
         if (selectedOrder.value) {
           const { data } = await supabase.from('orders').select(`*, created_by:profiles!created_by(full_name), order_items(*)`).eq('id', selectedOrder.value.id).single();
           selectedOrder.value = data;
@@ -162,13 +194,12 @@ const updateItemStatus = async (item: OrderItem, newStatus: string, fileUrl?: st
     } catch (err: any) { console.error("Erro ao atualizar status do item:", err); }
 };
 
-// NOVA FUNÇÃO PARA LIBERAR ITEM INDIVIDUAL
 const handleReleaseItem = async (item: OrderItem) => {
     try {
         const { error } = await supabase.rpc('update_order_item_status', {
             p_item_id: item.id,
-            p_new_status: 'production_queue', // Envia direto para a fila
-            p_final_art_url: item.stamp_image_url, // Mantém a URL da arte
+            p_new_status: 'production_queue',
+            p_final_art_url: item.stamp_image_url,
             p_profile_id: userStore.profile?.id
         });
         if (error) throw error;
@@ -193,6 +224,11 @@ const releaseToProduction = async (order: Order) => {
         if(showLaunchModal.value) showLaunchModal.value = false;
     } catch (err: any) { console.error("Erro ao liberar para produção:", err); }
 }
+
+const onDragEnd = async (event: any) => {
+    // Lógica para quando um item for arrastado para outra coluna (se necessário)
+    // Por exemplo, mudar o design_tag
+};
 
 onActivated(fetchDesignOrders);
 onMounted(fetchDesignOrders);
