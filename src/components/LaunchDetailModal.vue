@@ -39,23 +39,15 @@
           <v-spacer></v-spacer>
 
           <div class="item-actions d-flex align-center justify-end">
-            <v-tooltip text="Liberar para gerar Ordem de Produção (PDF)" location="top">
-              <template v-slot:activator="{ props }">
-                <v-checkbox-btn
-                  v-bind="props"
-                  v-if="isItemApproved(item.status)"
-                  :model-value="item.is_op_generated"
-                  @update:modelValue="(val) => handleCheckChange(item, val)"
-                  color="info"
-                  class="mr-2"
-                ></v-checkbox-btn>
-              </template>
-            </v-tooltip>
-
-            <v-chip v-if="isItemApproved(item.status)" color="success" variant="flat">
-              <v-icon start>mdi-check</v-icon>
-              Aprovado
-            </v-chip>
+            <div v-if="isItemApproved(item.status)" class="d-flex align-center ga-2">
+                <v-chip color="success" variant="flat">
+                  <v-icon start>mdi-check</v-icon>
+                  Aprovado
+                </v-chip>
+                <v-btn color="primary" variant="tonal" size="small" @click="emit('releaseItem', item)">
+                    Liberar Item
+                </v-btn>
+            </div>
             <v-chip v-else-if="item.status === 'customer_approval'" color="orange" variant="tonal">
               <v-icon start>mdi-account-clock-outline</v-icon>
               Aguardando Vendedor
@@ -82,7 +74,7 @@
         <div v-if="canBeReleased" class="text-center mt-8">
             <v-btn color="success" size="large" variant="flat" @click="emit('releaseToProduction', order)">
                 <v-icon start>mdi-send-check-outline</v-icon>
-                Liberar Lançamento para Produção
+                Liberar Lançamento Completo
             </v-btn>
         </div>
 
@@ -101,39 +93,26 @@ const props = defineProps({
   order: Object as () => any | null,
 });
 
-const emit = defineEmits(['close', 'approve', 'sendToSeller', 'releaseToProduction']);
+// EVENTO 'releaseItem' ADICIONADO
+const emit = defineEmits(['close', 'approve', 'sendToSeller', 'releaseToProduction', 'releaseItem']);
 
 const tagColors = {
   'Desenvolvimento': 'primary',
   'Alteração': 'warning',
   'Finalização': 'success',
+  'Aprovado': 'green'
 };
 
 const isItemApproved = (status: string) => {
-    return ['approved_by_designer', 'approved_by_seller', 'production_queue'].includes(status);
+    // Aprovado pelo vendedor é o gatilho para poder liberar o item
+    return status === 'approved_by_seller';
 }
 
 const canBeReleased = computed(() => {
     if (!props.order || !props.order.order_items) return false;
+    // O botão de liberar tudo só aparece se todos os itens estiverem aprovados pelo vendedor
     return props.order.order_items.every(item => isItemApproved(item.status));
 });
-
-
-const handleCheckChange = async (item: any, isChecked: boolean) => {
-  const userStore = useUserStore();
-  try {
-    const { error } = await supabase.rpc('toggle_item_op_generation', {
-      p_item_id: item.id,
-      p_is_generated: isChecked,
-      p_profile_id: userStore.profile?.id,
-    });
-    if (error) throw error;
-    item.is_op_generated = isChecked;
-  } catch (err) {
-    console.error("Erro ao atualizar o 'check' do item:", err);
-    item.is_op_generated = !isChecked;
-  }
-};
 </script>
 
 <style scoped lang="scss">

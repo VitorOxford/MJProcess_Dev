@@ -70,7 +70,35 @@
                         :active="editedItemIndex === index"
                         @click="editItem(index)"
                       >
-                        <v-list-item-title class="font-weight-bold">{{ item.stamp_ref || 'Novo Item' }}</v-list-item-title>
+                        <template #prepend>
+                            <v-img
+                                v-if="item.stamp_image_file_preview"
+                                :src="item.stamp_image_file_preview"
+                                width="40"
+                                height="40"
+                                cover
+                                class="rounded mr-4"
+                            >
+                                <template v-slot:placeholder>
+                                    <div class="d-flex align-center justify-center fill-height">
+                                        <v-progress-circular color="grey-lighten-4" indeterminate></v-progress-circular>
+                                    </div>
+                                </template>
+                            </v-img>
+                            <v-icon v-else class="mr-4" size="40" color="grey-darken-1">mdi-image-multiple-outline</v-icon>
+                        </template>
+                        <v-list-item-title class="font-weight-bold d-flex align-center">
+                            {{ item.stamp_ref || 'Novo Item' }}
+                            <v-chip
+                                v-if="item.design_tag"
+                                :color="tagColorMap[item.design_tag]"
+                                size="x-small"
+                                class="ml-2"
+                                label
+                            >
+                                {{ item.design_tag }}
+                            </v-chip>
+                        </v-list-item-title>
                         <v-list-item-subtitle>{{ item.fabric_type || 'Sem tecido' }} - {{ item.quantity_meters || 0 }}m</v-list-item-subtitle>
                         <template v-slot:append>
                           <v-btn icon="mdi-delete-outline" variant="text" size="small" color="error" @click.stop="removeItem(index)"></v-btn>
@@ -154,6 +182,7 @@
                               prepend-inner-icon="mdi-image-plus-outline"
                               accept="image/*,.pdf,.cdr,.ai"
                               :rules="[rules.requiredFile]"
+                              @change="handleFileChange"
                             ></v-file-input>
                           </v-col>
                           <v-col cols="12">
@@ -166,18 +195,19 @@
                             ></v-textarea>
                           </v-col>
                           <v-col cols="12">
-                            <v-btn-toggle
-                              v-model="editedItem.design_tag"
-                              color="primary"
-                              variant="outlined"
-                              divided
-                              mandatory
-                              class="w-100"
-                            >
-                              <v-btn value="Desenvolvimento" class="flex-grow-1">Desenvolvimento</v-btn>
-                              <v-btn value="Alteração" class="flex-grow-1">Alteração</v-btn>
-                              <v-btn value="Finalização" class="flex-grow-1">Finalização</v-btn>
-                            </v-btn-toggle>
+                            <label class="v-label text-caption mb-2 d-block">Destino no Design</label>
+                            <div class="d-flex ga-2 flex-wrap">
+                                <v-btn
+                                    v-for="tag in (Object.keys(tagColorMap) as Array<keyof typeof tagColorMap>)"
+                                    :key="tag"
+                                    :color="tagColorMap[tag]"
+                                    :variant="editedItem.design_tag === tag ? 'flat' : 'outlined'"
+                                    size="small"
+                                    @click="editedItem.design_tag = tag"
+                                >
+                                    {{ tag }}
+                                </v-btn>
+                            </div>
                           </v-col>
                         </v-row>
                       </v-form>
@@ -203,7 +233,7 @@
             <v-btn v-if="step < 2" @click="nextStep" :disabled="!isStep1Valid">Continuar</v-btn>
             <v-btn v-else @click="submitLaunch" :loading="isSubmitting" :disabled="orderItems.length === 0" color="primary" variant="flat">
               <v-icon left>mdi-rocket-launch</v-icon>
-              Enviar para o Design
+              Enviar Lançamento
             </v-btn>
           </div>
         </template>
@@ -224,15 +254,15 @@ import type { VForm } from 'vuetify/components';
 
 type StockItem = { fabric_type: string; available_meters: number; };
 
-// ✅ Tipagem alinhada ao segundo código (funcional)
 type OrderHeader = { customer_name: string; has_down_payment: boolean; down_payment_proof_file: File | null; };
 type OrderItem = {
   fabric_type: string | null;
   stamp_ref: string;
   quantity_meters: number | null;
-  stamp_image_file: File | null;  // mudou de File[] para File | null
+  stamp_image_file: File | null;
+  stamp_image_file_preview: string | null; // Adicionado para a pré-visualização
   notes: string;
-  design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização';
+  design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização' | 'Aprovado';
 };
 type Feedback = { message: string; type: 'success' | 'error'; }
 
@@ -248,13 +278,21 @@ const stepperItems = [
   { title: 'Itens do Pedido', icon: 'mdi-format-list-bulleted-square' }
 ];
 
+const tagColorMap = {
+  'Desenvolvimento': '#40c4ff',
+  'Alteração': '#ffab40',
+  'Finalização': '#26A69A',
+  'Aprovado': '#4CAF50'
+};
+
 const orderHeader = reactive<OrderHeader>({ customer_name: '', has_down_payment: false, down_payment_proof_file: null });
 
 const createNewItem = (): OrderItem => ({
   fabric_type: null,
   stamp_ref: '',
   quantity_meters: null,
-  stamp_image_file: null, // ✅ alinhado
+  stamp_image_file: null,
+  stamp_image_file_preview: null,
   notes: '',
   design_tag: 'Desenvolvimento',
 });
@@ -266,7 +304,6 @@ const isEditing = computed(() => editedItemIndex.value !== null);
 
 const feedback = reactive<Feedback>({ message: '', type: 'success' });
 
-// ✅ Regras com requiredFile igual ao segundo código
 const rules = {
   required: (v: any) => !!v || 'Campo obrigatório.',
   positive: (v: number | null) => (v != null && v > 0) || 'O valor deve ser maior que zero.',
@@ -281,7 +318,6 @@ const isStep1Valid = computed(() => {
   return true;
 });
 
-// ✅ Agora basta existir um arquivo (qualquer coisa) para habilitar o botão
 const isItemFormValid = computed(() => {
   const item = editedItem.value;
   const hasText = !!item.fabric_type && !!item.stamp_ref?.trim();
@@ -315,7 +351,9 @@ const prepareNewItem = async () => {
 
 const editItem = (index: number) => {
   editedItemIndex.value = index;
-  editedItem.value = structuredClone(toRaw(orderItems.value[index]));
+  // Criar uma cópia profunda para edição
+  const itemToEdit = structuredClone(toRaw(orderItems.value[index]));
+  editedItem.value = itemToEdit;
 }
 
 const removeItem = (index: number) => {
@@ -324,6 +362,18 @@ const removeItem = (index: number) => {
     prepareNewItem();
   }
 }
+
+const handleFileChange = (event: Event) => {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files[0]) {
+        editedItem.value.stamp_image_file = input.files[0];
+        // Cria uma URL temporária para pré-visualização
+        editedItem.value.stamp_image_file_preview = URL.createObjectURL(input.files[0]);
+    } else {
+        editedItem.value.stamp_image_file = null;
+        editedItem.value.stamp_image_file_preview = null;
+    }
+};
 
 const saveOrUpdateItem = async () => {
   if (!isItemFormValid.value) {
@@ -359,7 +409,6 @@ const showFeedback = (message: string, type: 'success' | 'error') => {
   feedback.type = type;
 };
 
-// ✅ Aceita File | Blob no upload
 const uploadFile = async (file: File | Blob, bucket: string, path: string): Promise<string> => {
   const { data, error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true });
   if (error) throw error;
@@ -377,7 +426,6 @@ const submitLaunch = async () => {
   feedback.message = '';
 
   try {
-    // Comprovante de entrada (se houver)
     let proofPublicUrl: string | null = null;
     if (orderHeader.has_down_payment && orderHeader.down_payment_proof_file) {
       const file = orderHeader.down_payment_proof_file;
@@ -386,7 +434,6 @@ const submitLaunch = async () => {
       proofPublicUrl = await uploadFile(file, 'proofs', filePath);
     }
 
-    // Upload das artes dos itens
     const itemsPayload = await Promise.all(orderItems.value.map(async (item, index) => {
       const file = item.stamp_image_file;
       if (!file) {
@@ -417,7 +464,7 @@ const submitLaunch = async () => {
 
     if (rpcError) throw rpcError;
 
-    showFeedback('Lançamento enviado para o design com sucesso!', 'success');
+    showFeedback('Lançamento enviado com sucesso!', 'success');
     resetForm();
 
   } catch (error: any) {
@@ -431,7 +478,7 @@ const submitLaunch = async () => {
 const resetForm = () => {
   orderHeader.customer_name = '';
   orderHeader.has_down_payment = false;
-  orderHeader.down_payment_proof_file = null; // ✅ alinhado
+  orderHeader.down_payment_proof_file = null;
   orderItems.value = [];
   prepareNewItem();
   step.value = 1;
@@ -462,9 +509,5 @@ onMounted(fetchStock);
   background-color: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
-}
-.v-btn-toggle {
-  display: flex;
-  .v-btn { flex: 1 1 0; }
 }
 </style>

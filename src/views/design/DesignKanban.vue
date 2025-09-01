@@ -38,7 +38,7 @@
                        <v-divider class="my-2"></v-divider>
                        <v-chip size="small">{{ order.is_launch ? `${order.order_items.length} itens` : 'Pedido Único' }}</v-chip>
                      </v-card-text>
-                      </v-card>
+                  </v-card>
                </div>
             </template>
           </draggable>
@@ -57,6 +57,7 @@
       @approve="handleDesignerApproval"
       @sendToSeller="openUploadModal"
       @releaseToProduction="releaseToProduction"
+      @releaseItem="handleReleaseItem"
     />
     <FileUploadModal
       :show="showUploadModal"
@@ -76,7 +77,7 @@ import draggable from 'vuedraggable';
 import LaunchDetailModal from '@/components/LaunchDetailModal.vue';
 import FileUploadModal from '@/components/FileUploadModal.vue';
 
-type OrderItem = { id: string; status: string; design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização'; order_id: string; [key: string]: any };
+type OrderItem = { id: string; status: string; design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização' | 'Aprovado'; order_id: string; [key: string]: any };
 type Order = { id: string; status: string; is_launch: boolean; order_items: OrderItem[]; [key: string]: any };
 
 const loading = ref(true);
@@ -88,11 +89,10 @@ const showUploadModal = ref(false);
 const selectedItem = ref<OrderItem | null>(null);
 const uploadModalTitle = ref('');
 
-// *** LÓGICA DE FILTRAGEM CORRIGIDA E FINAL ***
 const developmentOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'design_pending' && order.order_items.some(item => item.design_tag === 'Desenvolvimento')));
 const alterationOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'design_pending' && order.order_items.some(item => item.design_tag === 'Alteração')));
 const finalizationOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'design_pending' && order.order_items.some(item => item.design_tag === 'Finalização')));
-const approvedOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'customer_approval'));
+const approvedOrders = computed(() => allDesignOrders.value.filter(order => order.status === 'customer_approval' || order.order_items.some(item => item.status === 'approved_by_seller')));
 
 const columns = computed(() => [
   { id: 1, title: 'Desenvolvimento', icon: 'mdi-lightbulb-on-outline', color: '#40c4ff', orders: developmentOrders.value },
@@ -162,8 +162,27 @@ const updateItemStatus = async (item: OrderItem, newStatus: string, fileUrl?: st
     } catch (err: any) { console.error("Erro ao atualizar status do item:", err); }
 };
 
+// NOVA FUNÇÃO PARA LIBERAR ITEM INDIVIDUAL
+const handleReleaseItem = async (item: OrderItem) => {
+    try {
+        const { error } = await supabase.rpc('update_order_item_status', {
+            p_item_id: item.id,
+            p_new_status: 'production_queue', // Envia direto para a fila
+            p_final_art_url: item.stamp_image_url, // Mantém a URL da arte
+            p_profile_id: userStore.profile?.id
+        });
+        if (error) throw error;
+        await fetchDesignOrders();
+        if (selectedOrder.value) {
+          const { data } = await supabase.from('orders').select(`*, created_by:profiles!created_by(full_name), order_items(*)`).eq('id', selectedOrder.value.id).single();
+          selectedOrder.value = data;
+        }
+    } catch(err: any) {
+        console.error("Erro ao liberar item para produção:", err);
+    }
+};
+
 const releaseToProduction = async (order: Order) => {
-    // *** CORREÇÃO: Chama a nova função dedicada ***
     try {
         const { error } = await supabase.rpc('release_order_to_production', {
             p_order_id: order.id,

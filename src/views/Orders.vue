@@ -104,18 +104,18 @@
               <v-chip size="small" variant="tonal">{{ getDayProduction(day.date).toLocaleString('pt-BR') }}m / {{ getDailyLimit(day.date).toLocaleString('pt-BR') }}m</v-chip>
             </div>
             <div class="kanban-content pa-2">
-              <v-card v-for="entry in getScheduledEntriesForDay(day.date)" :key="entry.id" class="order-card-kanban my-2">
-                <v-card-text class="pa-2 d-flex flex-column" @click="openDetailModal(entry.orders.id)">
-                    <p class="font-weight-bold text-body-2 text-truncate">{{ entry.orders.customer_name }}</p>
-                    <p class="text-caption text-grey-lighten-1 mt-1">{{ entry.orders.details?.fabric_type || 'N/A' }}</p>
+              <v-card v-for="item in getScheduledItemsForDay(day.date)" :key="item.id" class="order-card-kanban my-2">
+                <v-card-text class="pa-2 d-flex flex-column" @click="openDetailModal(item.order_id)">
+                    <p class="font-weight-bold text-body-2 text-truncate">{{ item.order.customer_name }}</p>
+                    <p class="text-caption text-grey-lighten-1 mt-1">{{ item.fabric_type }} - {{ item.stamp_ref }}</p>
                     <v-spacer></v-spacer>
                     <div class="d-flex justify-space-between align-center mt-2">
-                      <p class="text-caption text-grey">{{ entry.orders.creator?.full_name || 'N/A' }}</p>
-                      <v-chip size="x-small" :color="getMachineTypeForFabric(entry.orders.details?.fabric_type || '') === 'MESA' ? 'cyan' : 'amber'" variant="flat">{{ entry.quantity_meters.toLocaleString('pt-BR') }}m</v-chip>
+                      <p class="text-caption text-grey">{{ item.order.creator?.full_name || 'N/A' }}</p>
+                      <v-chip size="x-small" :color="getMachineTypeForFabric(item.fabric_type) === 'MESA' ? 'cyan' : 'amber'" variant="flat">{{ item.quantity_meters.toLocaleString('pt-BR') }}m</v-chip>
                     </div>
                 </v-card-text>
                  <v-card-actions v-if="userStore.isAdmin" class="pa-1 justify-center">
-                    <v-btn color="primary" variant="tonal" size="small" @click="openFastTrackModal(entry.orders)">
+                    <v-btn color="primary" variant="tonal" size="small" @click="openFastTrackModal(item.order)">
                         <v-icon start>mdi-rocket-launch-outline</v-icon>
                         Adiantar Entrega
                     </v-btn>
@@ -134,7 +134,7 @@
                 </v-card-text>
               </v-card>
 
-              <p v-if="getScheduledEntriesForDay(day.date).length === 0 && getGhostEntriesForDay(day.date).length === 0" class="text-caption text-grey text-center mt-4">Nenhum pedido para este dia.</p>
+              <p v-if="getScheduledItemsForDay(day.date).length === 0 && getGhostEntriesForDay(day.date).length === 0" class="text-caption text-grey text-center mt-4">Nenhum pedido para este dia.</p>
             </div>
           </div>
         </div>
@@ -159,19 +159,19 @@
                     </div>
                 </div>
               </div>
-              <div v-if="getScheduledEntriesForDay(day.date).length > 0 || getGhostEntriesForDay(day.date).length > 0" class="mt-4">
-                <v-card v-for="entry in getScheduledEntriesForDay(day.date)" :key="`mobile-order-${entry.id}`" class="order-card-vertical mb-3" variant="flat">
-                  <v-list-item lines="three" @click="openDetailModal(entry.orders.id)">
-                    <v-list-item-title class="font-weight-bold text-body-1">{{ entry.orders.customer_name }}</v-list-item-title>
+              <div v-if="getScheduledItemsForDay(day.date).length > 0 || getGhostEntriesForDay(day.date).length > 0" class="mt-4">
+                <v-card v-for="item in getScheduledItemsForDay(day.date)" :key="`mobile-order-${item.id}`" class="order-card-vertical mb-3" variant="flat">
+                  <v-list-item lines="three" @click="openDetailModal(item.order_id)">
+                    <v-list-item-title class="font-weight-bold text-body-1">{{ item.order.customer_name }}</v-list-item-title>
                     <v-list-item-subtitle>
-                      {{ entry.orders.details?.fabric_type || 'N/A' }} <br>
+                      {{ item.fabric_type }} - {{ item.stamp_ref }} <br>
                       <div class="d-flex justify-space-between align-center mt-1">
-                        <span class="text-grey-lighten-2">Por: {{ entry.orders.creator?.full_name || 'N/A' }}</span>
+                        <span class="text-grey-lighten-2">Por: {{ item.order.creator?.full_name || 'N/A' }}</span>
                       </div>
                     </v-list-item-subtitle>
                     <template v-slot:append>
                       <div class="text-right">
-                        <v-chip :color="getMachineTypeForFabric(entry.orders.details?.fabric_type || '') === 'MESA' ? 'cyan' : 'amber'" variant="flat" class="mb-1">{{ entry.quantity_meters.toLocaleString('pt-BR') }}m</v-chip>
+                        <v-chip :color="getMachineTypeForFabric(item.fabric_type) === 'MESA' ? 'cyan' : 'amber'" variant="flat" class="mb-1">{{ item.quantity_meters.toLocaleString('pt-BR') }}m</v-chip>
                       </div>
                     </template>
                   </v-list-item>
@@ -275,9 +275,10 @@ import OrderDetailModal from '@/components/OrderDetailModal.vue';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+// *** TIPAGEM ATUALIZADA PARA INCLUIR order_id no OrderItem ***
 type OrderItem = {
   id: string; fabric_type: string; stamp_ref: string; quantity_meters: number;
-  stamp_image_url: string; status: string; is_op_generated: boolean;
+  stamp_image_url: string; status: string; is_op_generated: boolean; order_id: string;
 };
 
 type Order = {
@@ -290,6 +291,17 @@ type Order = {
 
 type ScheduleEntry = {
     id: number; scheduled_date: string; quantity_meters: number; orders: Order;
+}
+
+// *** NOVA TIPAGEM PARA REPRESENTAR ITENS DESMEMBRADOS ***
+type ScheduledItem = {
+    id: string; // id do order_item
+    order_id: string; // id do pedido pai
+    scheduled_date: string;
+    quantity_meters: number;
+    fabric_type: string;
+    stamp_ref: string;
+    order: Order; // referência ao pedido pai completo
 }
 
 const userStore = useUserStore();
@@ -329,12 +341,8 @@ const statusDisplayMap: Record<string, string> = {
 
 const ordersPendingStock = computed(() => allOrders.value.filter(o => o.status === 'pending_stock'));
 const ordersPendingSchedule = computed(() => allOrders.value.filter(o => o.status === 'production_queue'));
-
-// *** CORREÇÃO APLICADA AQUI ***
-// Agora, um pedido "em design" (para fins de card fantasma) é qualquer um com status 'design_pending' OU 'customer_approval'.
 const designAndApprovalStatuses = ['design_pending', 'customer_approval'];
 const ordersInDesign = computed(() => allOrders.value.filter(o => designAndApprovalStatuses.includes(o.status) && o.is_launch));
-
 const totalMetersPendingSchedule = computed(() => ordersPendingSchedule.value.reduce((sum, order) => sum + order.quantity_meters, 0));
 
 const ghostLaunches = computed(() => {
@@ -348,6 +356,48 @@ const ghostLaunches = computed(() => {
         return { ...order, display_date: displayDate };
     });
 });
+
+// *** INÍCIO DA GRANDE MUDANÇA: LÓGICA PARA DESMEMBRAR ITENS ***
+const scheduledItems = computed((): ScheduledItem[] => {
+    const items: ScheduledItem[] = [];
+    filteredScheduleEntries.value.forEach(entry => {
+        if (entry.orders.is_launch) {
+            // Se for lançamento, desmembra em itens individuais
+            entry.orders.order_items.forEach(item => {
+                items.push({
+                    id: item.id,
+                    order_id: entry.orders.id,
+                    scheduled_date: entry.scheduled_date,
+                    quantity_meters: item.quantity_meters,
+                    fabric_type: item.fabric_type,
+                    stamp_ref: item.stamp_ref,
+                    order: entry.orders
+                });
+            });
+        } else {
+            // Se não for, trata como um item único
+            items.push({
+                id: entry.orders.id, // Usa o ID do pedido como ID do item
+                order_id: entry.orders.id,
+                scheduled_date: entry.scheduled_date,
+                quantity_meters: entry.orders.quantity_meters,
+                fabric_type: entry.orders.details?.fabric_type || 'N/A',
+                stamp_ref: entry.orders.details?.stamp_details || 'Item Único',
+                order: entry.orders
+            });
+        }
+    });
+    return items;
+});
+
+const getScheduledItemsForDay = (date: Date) => {
+    return scheduledItems.value.filter(item => isSameDay(parseISO(item.scheduled_date), date));
+};
+
+const getDayProduction = (date: Date) => {
+    return getScheduledItemsForDay(date).reduce((sum, item) => sum + item.quantity_meters, 0);
+};
+// *** FIM DA GRANDE MUDANÇA ***
 
 const filteredScheduleEntries = computed(() => {
     if (!searchQuery.value) return scheduleEntries.value;
@@ -378,16 +428,8 @@ const getDailyLimit = (date: Date): number => getDay(date) === 6 ? 5000 : 14000;
 const fabricMachineMap: Record<string, 'MESA' | 'CORRIDA'> = { 'Creponado': 'MESA', 'Tule': 'MESA', 'Fluity': 'MESA', 'Canelado': 'MESA', 'Suplex': 'MESA', 'Chiffon': 'MESA', 'Liganet': 'MESA', 'Crepinho': 'CORRIDA', 'Twill Fly': 'CORRIDA', 'Toque de seda': 'CORRIDA', 'Corta-Vento': 'CORRIDA', 'Tactel': 'CORRIDA', 'Alfaiataria': 'CORRIDA' };
 const getMachineTypeForFabric = (fabric: string): 'MESA' | 'CORRIDA' => fabricMachineMap[fabric] || 'CORRIDA';
 
-const getScheduledEntriesForDay = (date: Date) => {
-    return filteredScheduleEntries.value.filter(entry => isSameDay(parseISO(entry.scheduled_date), date));
-};
-
 const getGhostEntriesForDay = (date: Date) => {
     return filteredGhostLaunches.value.filter(ghost => isSameDay(ghost.display_date, date));
-};
-
-const getDayProduction = (date: Date) => {
-    return getScheduledEntriesForDay(date).reduce((sum, entry) => sum + entry.quantity_meters, 0);
 };
 
 const isDayOverloaded = (date: Date) => getDayProduction(date) > getDailyLimit(date);
@@ -438,12 +480,6 @@ const confirmFastTrack = async () => {
         isFastTracking.value = false;
     }
 };
-
-const getProofUrl = (path: string | null) => {
-    if (!path) return '#';
-    const { data } = supabase.storage.from('proofs').getPublicUrl(path);
-    return data.publicUrl;
-}
 
 const fetchAllData = async () => {
   loading.value = true;
@@ -518,8 +554,8 @@ const generatePdf = async (item: OrderItem) => {
     ]);
 
     const logoProps = doc.getImageProperties(logoBase64);
-    const logoWidth = 40; // Diminui a largura da logo
-    const logoHeight = (logoProps.height * logoWidth) / logoProps.width; // Calcula altura proporcional
+    const logoWidth = 40;
+    const logoHeight = (logoProps.height * logoWidth) / logoProps.width;
     doc.addImage(logoBase64, 'PNG', 15, 12, logoWidth, logoHeight);
 
     doc.setFontSize(9);
@@ -529,7 +565,6 @@ const generatePdf = async (item: OrderItem) => {
       "RUA LUIZ MONTANHAN, 1302 TIRO DE GUERRA - TIETE - SP CEP: 18.532-000",
       "Fone/Celular: (15) 99847-8789 | E-mail: mrjackyfinanceiro@gmail.com"
     ];
-    // Move o texto da empresa para não sobrepor a logo
     doc.text(companyInfo, pageWidth - 15, 15, { align: 'right' });
 
     doc.setFontSize(18);
@@ -577,7 +612,7 @@ const generatePdf = async (item: OrderItem) => {
                 it.stamp_ref,
                 it.fabric_type,
                 it.quantity_meters,
-                statusDisplayMap[it.status] || it.status // Adiciona o status aqui
+                statusDisplayMap[it.status] || it.status
             ]),
             theme: 'grid',
             headStyles: { fillColor: [80, 80, 80], textColor: 255 },
@@ -585,7 +620,7 @@ const generatePdf = async (item: OrderItem) => {
             columnStyles: { 0: { cellWidth: 10 }, 3: { halign: 'right' }, 4: { halign: 'center' } },
             didDrawCell: (data) => {
                 if (data.row.raw && data.row.raw[1] === item.stamp_ref) {
-                    doc.setFillColor(230, 230, 230); // Cinza claro para destacar
+                    doc.setFillColor(230, 230, 230);
                     doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
                     doc.setTextColor(0);
                 }
@@ -600,7 +635,7 @@ const generatePdf = async (item: OrderItem) => {
     doc.text('ARTE APROVADA', 15, artStartY);
 
     const imgProps = doc.getImageProperties(artBase64);
-    const maxImgWidth = pageWidth - 120; // Diminui a largura máxima da imagem
+    const maxImgWidth = pageWidth - 120;
     const maxImgHeight = pageHeight - artStartY - 30;
     const ratio = Math.min(maxImgWidth / imgProps.width, maxImgHeight / imgProps.height);
     const imgWidth = imgProps.width * ratio;
