@@ -282,13 +282,19 @@ type OrderItem = {
 type Order = {
   id: string; customer_name: string; status: string; created_at: string;
   quantity_meters: number; is_launch: boolean;
+  order_number: number;
   details: { fabric_type: string; stamp_details: string; } | null;
   creator?: { full_name: string; };
   order_items: OrderItem[];
 };
 
 type ScheduleEntry = {
-    id: number; scheduled_date: string; quantity_meters: number; orders: Order;
+    id: number;
+    scheduled_date: string;
+    quantity_meters: number;
+    order_id: string;
+    order_item_id: string;
+    orders: Order;
 }
 
 type ScheduledItem = {
@@ -301,16 +307,14 @@ type ScheduledItem = {
     order: Order;
 }
 
-// ****** INÍCIO DA ALTERAÇÃO ******
 type GhostItem = {
-    id: string; // id do order_item
+    id: string;
     order_id: string;
     quantity_meters: number;
     stamp_ref: string;
     display_date: Date;
     order: Order;
 }
-// ****** FIM DA ALTERAÇÃO ******
 
 const userStore = useUserStore();
 const allOrders = ref<Order[]>([]);
@@ -319,7 +323,7 @@ const loading = ref(true);
 const currentWeekStart = ref(startOfWeek(new Date(), { weekStartsOn: 1 }));
 const showDetailModal = ref(false);
 const selectedOrderId = ref<string | null>(null);
-const selectedItemId = ref<string | null>(null); // Adicionado para focar o item no modal
+const selectedItemId = ref<string | null>(null);
 const showQueueModal = ref(false);
 const modalTitle = ref('');
 const modalOrders = ref<Order[]>([]);
@@ -337,44 +341,52 @@ const modalHeaders = [
 ];
 
 const statusDisplayMap: Record<string, string> = {
-    design_pending: 'No Design', customer_approval: 'Aprovação Vendedor',
-    approved_by_designer: 'Aprovado (Designer)', approved_by_seller: 'Aprovado (Vendedor)',
-    production_queue: 'Fila de Produção', in_printing: 'Em Impressão',
-    in_cutting: 'Em Corte', completed: 'Finalizado', pending_stock: 'Aguardando Estoque'
+    design_pending: 'No Design',
+    customer_approval: 'Aprovação Vendedor',
+    approved_by_designer: 'Aprovado (Designer)',
+    approved_by_seller: 'Aprovado (Vendedor)',
+    production_queue: 'Fila de Produção',
+    in_printing: 'Em Impressão',
+    in_cutting: 'Em Corte',
+    completed: 'Finalizado',
+    pending_stock: 'Aguardando Estoque'
 };
 
+
 const ordersPendingStock = computed(() => allOrders.value.filter(o => o.status === 'pending_stock'));
-const ordersPendingSchedule = computed(() => allOrders.value.filter(o => o.status === 'production_queue'));
-const designAndApprovalStatuses = ['design_pending', 'customer_approval'];
+const ordersPendingSchedule = computed(() => allOrders.value.filter(o => o.status === 'production_queue' && !scheduleEntries.value.some(se => se.order_id === o.id)));
+const designAndApprovalStatuses = ['design_pending', 'customer_approval', 'changes_requested', 'approved_by_designer', 'approved_by_seller', 'finalizing'];
 const ordersInDesign = computed(() => allOrders.value.filter(o => designAndApprovalStatuses.includes(o.status)));
 const totalMetersPendingSchedule = computed(() => ordersPendingSchedule.value.reduce((sum, order) => sum + order.quantity_meters, 0));
 
-// ****** INÍCIO DA ALTERAÇÃO ******
-// Agora os fantasmas são baseados em itens individuais, não em pedidos
+
 const ghostItems = computed((): GhostItem[] => {
     const items: GhostItem[] = [];
     ordersInDesign.value.forEach(order => {
         if(order.is_launch){
             order.order_items.forEach(item => {
-                const createdAt = parseISO(order.created_at);
-                const today = startOfToday();
-                let displayDate = createdAt;
-                if (isBefore(createdAt, today)) {
-                    displayDate = today;
+                if (designAndApprovalStatuses.includes(item.status)) {
+                    const createdAt = parseISO(order.created_at);
+                    const today = startOfToday();
+                    let displayDate = createdAt;
+                    if (isBefore(createdAt, today)) {
+                        displayDate = today;
+                    }
+                    items.push({
+                        id: item.id,
+                        order_id: order.id,
+                        quantity_meters: item.quantity_meters,
+                        stamp_ref: item.stamp_ref,
+                        display_date: displayDate,
+                        order: order
+                    })
                 }
-                 items.push({
-                    id: item.id,
-                    order_id: order.id,
-                    quantity_meters: item.quantity_meters,
-                    stamp_ref: item.stamp_ref,
-                    display_date: displayDate,
-                    order: order
-                })
             })
         }
     });
     return items;
 });
+
 
 const filteredGhostItems = computed(() => {
     if (!searchQuery.value) return ghostItems.value;
@@ -384,39 +396,21 @@ const filteredGhostItems = computed(() => {
         ghost.order.creator?.full_name?.toLowerCase().includes(query)
     );
 });
-// ****** FIM DA ALTERAÇÃO ******
-
 
 const scheduledItems = computed((): ScheduledItem[] => {
-    const items: ScheduledItem[] = [];
-    filteredScheduleEntries.value.forEach(entry => {
-        if (entry.orders.is_launch) {
-            entry.orders.order_items.forEach(item => {
-                if (isItemReleasedForProd(item.status)) { // Apenas adiciona se o item foi liberado
-                    items.push({
-                        id: item.id,
-                        order_id: entry.orders.id,
-                        scheduled_date: entry.scheduled_date,
-                        quantity_meters: item.quantity_meters,
-                        fabric_type: item.fabric_type,
-                        stamp_ref: item.stamp_ref,
-                        order: entry.orders
-                    });
-                }
-            });
-        } else {
-            items.push({
-                id: entry.orders.id,
-                order_id: entry.orders.id,
-                scheduled_date: entry.scheduled_date,
-                quantity_meters: entry.orders.quantity_meters,
-                fabric_type: entry.orders.details?.fabric_type || 'N/A',
-                stamp_ref: entry.orders.details?.stamp_details || 'Item Único',
-                order: entry.orders
-            });
-        }
+    return filteredScheduleEntries.value.map(entry => {
+        const order = entry.orders;
+        const item = order.order_items.find(i => i.id === entry.order_item_id);
+        return {
+            id: item?.id || order.id,
+            order_id: order.id,
+            scheduled_date: entry.scheduled_date,
+            quantity_meters: entry.quantity_meters,
+            fabric_type: item?.fabric_type || order.details?.fabric_type || 'N/A',
+            stamp_ref: item?.stamp_ref || 'Item Único',
+            order: order
+        };
     });
-    return items;
 });
 
 const getScheduledItemsForDay = (date: Date) => {
@@ -446,21 +440,17 @@ const getDailyLimit = (date: Date): number => getDay(date) === 6 ? 5000 : 14000;
 const fabricMachineMap: Record<string, 'MESA' | 'CORRIDA'> = { 'Creponado': 'MESA', 'Tule': 'MESA', 'Fluity': 'MESA', 'Canelado': 'MESA', 'Suplex': 'MESA', 'Chiffon': 'MESA', 'Liganet': 'MESA', 'Crepinho': 'CORRIDA', 'Twill Fly': 'CORRIDA', 'Toque de seda': 'CORRIDA', 'Corta-Vento': 'CORRIDA', 'Tactel': 'CORRIDA', 'Alfaiataria': 'CORRIDA' };
 const getMachineTypeForFabric = (fabric: string): 'MESA' | 'CORRIDA' => fabricMachineMap[fabric] || 'CORRIDA';
 
-// ****** INÍCIO DA ALTERAÇÃO ******
 const getGhostItemsForDay = (date: Date) => {
     return filteredGhostItems.value.filter(ghost => isSameDay(ghost.display_date, date));
 };
-// ****** FIM DA ALTERAÇÃO ******
 
 const isDayOverloaded = (date: Date) => getDayProduction(date) > getDailyLimit(date);
 
-// ****** INÍCIO DA ALTERAÇÃO ******
 const openDetailModal = (orderId: string, itemId: string | null = null) => {
     selectedOrderId.value = orderId;
-    selectedItemId.value = itemId; // Armazena o ID do item clicado
+    selectedItemId.value = itemId;
     showDetailModal.value = true;
 };
-// ****** FIM DA ALTERAÇÃO ******
 
 const openQueueModal = (queueType: 'stock' | 'schedule' | 'design') => {
     if (queueType === 'stock') {
@@ -510,10 +500,10 @@ const fetchAllData = async () => {
     const [ordersResponse, scheduleResponse] = await Promise.all([
       supabase
         .from('orders')
-        .select(`*, creator:profiles!created_by(full_name), order_items(*)`), // Busca todos os pedidos para ter a info completa
+        .select(`*, creator:profiles!created_by(full_name), order_items(*)`),
       supabase
         .from('production_schedule')
-        .select(`*, orders:order_id (*, creator:profiles!created_by(full_name), details, order_items(*))`)
+        .select(`*, orders:order_id (*, creator:profiles!created_by(full_name), order_items(*))`)
         .gte('scheduled_date', format(subDays(new Date(), 90), 'yyyy-MM-dd'))
     ]);
 
@@ -521,7 +511,7 @@ const fetchAllData = async () => {
     if (scheduleResponse.error) throw scheduleResponse.error;
 
     allOrders.value = ordersResponse.data || [];
-    scheduleEntries.value = scheduleResponse.data || [];
+    scheduleEntries.value = scheduleResponse.data.map(entry => ({ ...entry, orders: entry.orders as Order })) || [];
 
   } catch (err: any) {
     console.error('Erro ao buscar dados da agenda:', err);
@@ -529,12 +519,6 @@ const fetchAllData = async () => {
     loading.value = false;
   }
 };
-
-const isItemReleasedForProd = (status: string) => {
-    const releasedStatuses = ['production_queue', 'in_printing', 'in_cutting', 'completed'];
-    return releasedStatuses.includes(status);
-};
-
 
 const getShortDate = (date: Date) => format(date, 'dd/MM');
 const formatDate = (dateString: string) => format(new Date(dateString), "dd/MM/yy 'às' HH:mm", { locale: ptBR });
@@ -557,15 +541,145 @@ const imageToBase64 = (url: string): Promise<string> => {
     });
 };
 
+
 const generatePdf = async (item: OrderItem) => {
-  let parentOrder = allOrders.value.find(o => Array.isArray(o.order_items) && o.order_items.some(oi => oi.id === item.id));
+  const parentOrder = allOrders.value.find(o => o.id === item.order_id);
 
   if (!parentOrder) {
       alert("Erro: não foi possível encontrar os dados do pedido principal para gerar o PDF.");
       return;
   }
-  // (O resto da função de PDF permanece igual)
+   try {
+    const { data: opNumber, error: rpcError } = await supabase.rpc('generate_op_number', {
+        p_item_id: item.id
+    });
+    if (rpcError) throw rpcError;
+
+    const today = new Date().toISOString().split('T')[0];
+    const { data: forecastDate, error: forecastError } = await supabase.rpc('calculate_delivery_forecast', {
+        p_op_date: today
+    });
+    if (forecastError) throw forecastError;
+
+    const formattedOpNumber = String(opNumber).padStart(4, '0');
+    const formattedForecastDate = format(new Date(forecastDate), 'dd/MM/yyyy', { locale: ptBR });
+    const formattedOrderNumber = String(parentOrder.order_number).padStart(4, '0');
+
+    const doc = new jsPDF();
+    const pageHeight = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.width || doc.internal.pageSize.getWidth();
+
+    const logoUrl = 'https://cdn.shopify.com/s/files/1/0661/4574/6991/files/Sem_nome_1080_x_800_px_1080_x_500_px_1080_x_400_px_1000_x_380_px_da020cf2-2bb9-4dac-8dd3-4548cfd2e5ae.png?v=1756811713';
+    const [logoBase64, artBase64] = await Promise.all([
+      imageToBase64(logoUrl),
+      imageToBase64(item.stamp_image_url)
+    ]);
+
+    const logoProps = doc.getImageProperties(logoBase64);
+    const logoWidth = 50;
+    const logoHeight = (logoProps.height * logoWidth) / logoProps.width;
+    doc.addImage(logoBase64, 'PNG', 15, 12, logoWidth, logoHeight);
+
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    const companyInfo = [
+      "MR JACKY - 20.631.721/0001-07",
+      "RUA LUIZ MONTANHAN, 1302 TIRO DE GUERRA - TIETE - SP CEP: 18.532-000",
+      "Fone/Celular: (15) 99847-8789 | E-mail: mrjackyfinanceiro@gmail.com"
+    ];
+    doc.text(companyInfo, pageWidth - 15, 15, { align: 'right' });
+
+    // ===== INÍCIO DA CORREÇÃO =====
+    const opTitle = `OP #${formattedOpNumber}`;
+    const orderTitle = `Pedido #${formattedOrderNumber}`;
+    const itemIndex = parentOrder.order_items.findIndex(oi => oi.id === item.id) + 1;
+    const totalItems = parentOrder.order_items.length;
+    const itemSubtitle = `Item ${itemIndex} de ${totalItems}`;
+
+    doc.setFontSize(18);
+    doc.setTextColor(0);
+    doc.text(opTitle, 15, 45);
+
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    doc.text(orderTitle, pageWidth - 15, 45, { align: 'right' });
+
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(itemSubtitle, pageWidth - 15, 51, { align: 'right' });
+
+    doc.setLineWidth(0.5);
+    doc.line(15, 55, pageWidth - 15, 55);
+    // ===== FIM DA CORREÇÃO =====
+
+    autoTable(doc, {
+        startY: 60,
+        head: [['CLIENTE', 'VENDEDOR', 'EMISSÃO', 'PREVISÃO DE ENTREGA']],
+        body: [[
+            parentOrder.customer_name,
+            parentOrder.creator?.full_name || 'N/A',
+            format(new Date(), 'dd/MM/yyyy'),
+            formattedForecastDate
+        ]],
+        theme: 'striped',
+        headStyles: { fillColor: [41, 128, 185] }
+    });
+
+    autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 10,
+        head: [['PRODUTO (BASE)', 'SERVIÇO (ESTAMPA)', 'QUANTIDADE (MT)']],
+        body: [[
+            item.fabric_type,
+            item.stamp_ref,
+            item.quantity_meters.toLocaleString('pt-BR') + 'm'
+        ]],
+        theme: 'grid',
+        headStyles: { fillColor: [41, 128, 185] }
+    });
+
+    let lastY = (doc as any).lastAutoTable.finalY;
+
+    const artStartY = lastY + 15;
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ARTE APROVADA', 15, artStartY);
+
+    const artX = 15;
+    const artY = artStartY + 5;
+
+    // ===== INÍCIO DA CORREÇÃO =====
+    const maxImgWidth = pageWidth - (artX * 2);
+    const maxImgHeight = pageHeight - artStartY - 45; // Margem inferior aumentada
+
+    const imgProps = doc.getImageProperties(artBase64);
+    // Calcula a proporção para caber tanto na largura quanto na altura máxima
+    const ratio = Math.min(maxImgWidth / imgProps.width, maxImgHeight / imgProps.height);
+    const imgWidth = imgProps.width * ratio;
+    const imgHeight = imgProps.height * ratio;
+
+    // Centraliza a imagem horizontalmente
+    const imgXCentered = (pageWidth - imgWidth) / 2;
+    // ===== FIM DA CORREÇÃO =====
+
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.5);
+    doc.rect(imgXCentered - 1, artY - 1, imgWidth + 2, imgHeight + 2, 'S');
+
+    doc.addImage(artBase64, 'PNG', imgXCentered, artY, imgWidth, imgHeight);
+
+    const footerY = pageHeight - 15;
+    doc.setFontSize(9);
+    doc.setTextColor(150);
+    doc.text('OP gerada com MJProcess', pageWidth / 2, footerY, { align: 'center' });
+
+    doc.save(`OP-${formattedOpNumber}-${parentOrder.customer_name}-${item.stamp_ref}.pdf`);
+
+  } catch (error: any) {
+    console.error("Erro ao gerar PDF:", error);
+    alert("Não foi possível gerar o PDF. Verifique se as imagens estão acessíveis e tente novamente.");
+  }
 };
+
 
 onActivated(fetchAllData);
 onMounted(fetchAllData);

@@ -37,23 +37,30 @@
           <v-spacer></v-spacer>
 
           <div class="item-actions d-flex align-center justify-end">
+
+            <v-checkbox-btn
+              v-if="isReadyForProductionFlow(item)"
+              :model-value="item.is_op_generated"
+              @update:model-value="() => toggleOpGenerated(item)"
+              color="info"
+              class="mr-2"
+            >
+              <template v-slot:label>
+                <v-tooltip activator="parent" location="top">
+                  Liberar Ordem de Produção (OP)
+                </v-tooltip>
+                <v-icon>mdi-file-pdf-box</v-icon>
+              </template>
+            </v-checkbox-btn>
+
             <div v-if="isItemInProduction(item.status)" class="d-flex align-center ga-2">
                 <v-chip color="teal" variant="flat">
                   <v-icon start>mdi-send</v-icon>
                   Liberado
                 </v-chip>
-                <v-btn
-                  v-if="item.is_op_generated"
-                  color="info"
-                  variant="tonal"
-                  size="small"
-                  @click="emit('generatePdf', item)"
-                >
-                    Gerar OP
-                </v-btn>
             </div>
 
-            <div v-else-if="isItemApproved(item.status)" class="d-flex align-center ga-2">
+            <div v-else-if="isItemApprovedBySeller(item.status)" class="d-flex align-center ga-2">
                 <v-chip color="success" variant="flat">
                   <v-icon start>mdi-check</v-icon>
                   Aprovado
@@ -70,19 +77,12 @@
 
             <div v-else class="d-flex flex-column ga-2" style="min-width: 180px;">
               <v-btn
-                v-if="item.design_tag === 'Aprovado'"
+                v-if="item.design_tag === 'Aprovado' || item.design_tag === 'Finalização'"
                 color="teal"
                 @click="emit('releaseItem', item)"
               >
                 <v-icon start>mdi-send</v-icon>
                 Liberar p/ Produção
-              </v-btn>
-              <v-btn
-                v-else-if="item.design_tag === 'Finalização'"
-                color="success"
-                @click="emit('approve', item)"
-              >
-                Aprovar Direto
               </v-btn>
               <v-btn
                 v-else
@@ -108,13 +108,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { supabase } from '@/api/supabase';
 
 const props = defineProps({
   show: Boolean,
   order: Object as () => any | null,
 });
 
-const emit = defineEmits(['close', 'approve', 'sendToSeller', 'releaseToProduction', 'releaseItem', 'generatePdf']);
+const emit = defineEmits(['close', 'approve', 'sendToSeller', 'releaseToProduction', 'releaseItem', 'itemUpdated']);
 
 const tagColors: Record<string, string> = {
   'Desenvolvimento': 'primary',
@@ -123,20 +124,49 @@ const tagColors: Record<string, string> = {
   'Aprovado': 'green'
 };
 
-const isItemApproved = (status: string) => {
+const isItemApprovedBySeller = (status: string) => {
     return status === 'approved_by_seller';
 }
 
-// Nova função para verificar se o item já foi para a fila de produção ou além
 const isItemInProduction = (status: string) => {
     const productionStatuses = ['production_queue', 'in_printing', 'in_cutting', 'completed'];
     return productionStatuses.includes(status);
 }
 
+// ===== INÍCIO DA CORREÇÃO =====
+const isReadyForProductionFlow = (item: any) => {
+    // Se já foi aprovado pelo vendedor
+    if (isItemApprovedBySeller(item.status)) return true;
+    // Se já está na produção
+    if (isItemInProduction(item.status)) return true;
+    // Se o designer marcou como 'Aprovado' ou 'Finalização' para liberação direta
+    if (item.status === 'design_pending' && (item.design_tag === 'Aprovado' || item.design_tag === 'Finalização')) return true;
+
+    return false;
+};
+// ===== FIM DA CORREÇÃO =====
+
+const toggleOpGenerated = async (item: any) => {
+    const newValue = !item.is_op_generated;
+    try {
+        const { error } = await supabase
+            .from('order_items')
+            .update({ is_op_generated: newValue })
+            .eq('id', item.id);
+        if (error) throw error;
+        item.is_op_generated = newValue;
+        emit('itemUpdated');
+    } catch (err) {
+        console.error("Erro ao atualizar a flag is_op_generated:", err);
+        alert("Ocorreu um erro ao tentar salvar a liberação da OP.");
+    }
+};
+
 const canBeReleased = computed(() => {
     if (!props.order || !props.order.order_items) return false;
-    return props.order.order_items.every((item: any) => isItemApproved(item.status));
+    return props.order.order_items.every((item: any) => isItemApprovedBySeller(item.status));
 });
+
 </script>
 
 <style scoped lang="scss">
@@ -167,5 +197,6 @@ const canBeReleased = computed(() => {
 .item-actions {
   min-width: 220px;
   text-align: right;
+  gap: 8px;
 }
 </style>

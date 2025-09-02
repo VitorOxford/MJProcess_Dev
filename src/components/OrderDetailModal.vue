@@ -44,13 +44,25 @@
         <div v-if="focusedItem && order.is_launch" class="focused-item-card pa-4 mb-4">
             <h4 class="text-subtitle-1 font-weight-bold mb-2">Item em Destaque</h4>
             <div class="d-flex align-center">
-                 <v-img :src="focusedItem.stamp_image_url" class="item-thumbnail mr-4" cover></v-img>
-                <div>
+                 <v-img :key="focusedItem.id" :src="focusedItem.stamp_image_url" class="item-thumbnail mr-4" cover></v-img>
+                 <div>
                   <span class="font-weight-bold">{{ focusedItem.stamp_ref }}</span>
                   <span class="text-caption d-block">{{ focusedItem.fabric_type }} - {{ focusedItem.quantity_meters }}m</span>
                 </div>
                 <v-spacer></v-spacer>
-                 <v-chip size="small" :color="getItemDisplay(focusedItem).color" label>{{ getItemDisplay(focusedItem).text }}</v-chip>
+                <v-btn
+                  v-if="focusedItem.is_op_generated"
+                  color="info"
+                  variant="text"
+                  size="small"
+                  class="ml-2"
+                  icon="mdi-file-pdf-box"
+                  @click="emit('generatePdf', focusedItem)"
+                >
+                  <v-icon></v-icon>
+                  <v-tooltip activator="parent" location="top">Gerar Ordem de Produção (OP)</v-tooltip>
+                </v-btn>
+                <v-chip size="small" :color="getItemDisplay(focusedItem).color" label>{{ getItemDisplay(focusedItem).text }}</v-chip>
             </div>
         </div>
 
@@ -75,7 +87,7 @@
                 <v-icon v-if="isItemReleasedForProd(item.status)" color="success" class="mr-2" title="Item liberado para produção">mdi-check-circle</v-icon>
                 <v-chip size="small" :color="getItemDisplay(item).color" label>{{ getItemDisplay(item).text }}</v-chip>
                 <v-btn
-                  v-if="isItemReleasedForProd(item.status) && item.is_op_generated"
+                  v-if="item.is_op_generated"
                   color="info"
                   variant="text"
                   size="small"

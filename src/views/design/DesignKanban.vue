@@ -59,6 +59,7 @@
       @sendToSeller="openUploadModal"
       @releaseToProduction="releaseToProduction"
       @releaseItem="handleReleaseItem"
+      @itemUpdated="fetchDesignOrders"
     />
     <FileUploadModal
       :show="showUploadModal"
@@ -84,7 +85,7 @@ type OrderItem = {
     status: string;
     design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização' | 'Aprovado';
     order_id: string;
-    order: Order; // Adicionado para ter a referência do pedido pai
+    order: Order;
     [key: string]: any
 };
 type Order = { id: string; status: string; is_launch: boolean; order_items: OrderItem[]; [key: string]: any };
@@ -99,26 +100,51 @@ const showUploadModal = ref(false);
 const selectedItem = ref<OrderItem | null>(null);
 const uploadModalTitle = ref('');
 
-// --- LÓGICA PRINCIPAL DE SEPARAÇÃO DOS ITENS ---
+// --- LÓGICA DE DADOS ---
+const fetchDesignOrders = async () => {
+  loading.value = true;
+  try {
+    const designStatuses = [
+        'design_pending',
+        'customer_approval',
+        'changes_requested',
+        'approved_by_designer',
+        'approved_by_seller'
+    ];
 
-// 1. Achatamos todos os itens de todos os pedidos em uma única lista
+    const { data, error } = await supabase.from('orders')
+      .select(`
+        id, customer_name, status, is_launch,
+        created_by:profiles!created_by(full_name),
+        order_items!inner(*)
+      `)
+      .in('order_items.status', designStatuses);
+
+    if (error) throw error;
+    allOrders.value = (data as any[]) || [];
+  } finally {
+    loading.value = false;
+  }
+};
+
 const allItems = computed((): OrderItem[] => {
     return allOrders.value.flatMap(order =>
         order.order_items.map(item => ({
             ...item,
-            order: order // Anexa a informação do pedido pai a cada item
+            order: order
         }))
     );
 });
 
-// 2. Filtramos os itens em suas respectivas colunas
-const developmentItems = computed(() => allItems.value.filter(item => item.order.status === 'design_pending' && item.design_tag === 'Desenvolvimento'));
-const alterationItems = computed(() => allItems.value.filter(item => item.order.status === 'design_pending' && item.design_tag === 'Alteração'));
-const finalizationItems = computed(() => allItems.value.filter(item => item.order.status === 'design_pending' && item.design_tag === 'Finalização'));
 
-// Um item está na coluna de aprovados se a TAG dele for 'Aprovado' OU se o STATUS dele já foi para a aprovação do vendedor
+const developmentItems = computed(() => allItems.value.filter(item => item.status === 'design_pending' && item.design_tag === 'Desenvolvimento'));
+const alterationItems = computed(() => allItems.value.filter(item => item.status === 'design_pending' && item.design_tag === 'Alteração'));
+const finalizationItems = computed(() => allItems.value.filter(item => item.status === 'design_pending' && item.design_tag === 'Finalização'));
+
+// ===== CORREÇÃO APLICADA AQUI =====
+// A lógica foi restaurada para incluir a verificação da `design_tag`.
 const approvedItems = computed(() => allItems.value.filter(item =>
-    item.design_tag === 'Aprovado' ||
+    (item.status === 'design_pending' && item.design_tag === 'Aprovado') ||
     item.status === 'customer_approval' ||
     item.status === 'approved_by_seller'
 ));
@@ -131,6 +157,8 @@ const columns = computed(() => [
   { id: 4, title: 'Aprovados', icon: 'mdi-check-decagram', color: '#4CAF50', items: approvedItems.value },
 ]);
 
+// --- MÉTODOS DE INTERAÇÃO ---
+
 const onCardMouseMove = (e: MouseEvent) => {
   const card = e.currentTarget as HTMLElement;
   const rect = card.getBoundingClientRect();
@@ -140,20 +168,6 @@ const onCardMouseMove = (e: MouseEvent) => {
   card.style.setProperty('--mouse-y', `${y}px`);
 };
 
-const fetchDesignOrders = async () => {
-  loading.value = true;
-  try {
-    const { data, error } = await supabase.from('orders')
-      .select(`id, customer_name, status, is_launch, created_by:profiles!created_by(full_name), order_items(*)`)
-      .in('status', ['design_pending', 'customer_approval']);
-    if (error) throw error;
-    allOrders.value = data || [];
-  } finally {
-    loading.value = false;
-  }
-};
-
-// Agora o modal abre baseado no item, e pegamos o pedido pai a partir dele
 const openModalForItem = (item: OrderItem) => {
   selectedOrder.value = item.order;
   showLaunchModal.value = true;
@@ -186,7 +200,6 @@ const updateItemStatus = async (item: OrderItem, newStatus: string, fileUrl?: st
         const { error } = await supabase.rpc('update_order_item_status', { p_item_id: item.id, p_new_status: newStatus, p_final_art_url: fileUrl || null, p_profile_id: userStore.profile?.id });
         if (error) throw error;
         await fetchDesignOrders();
-        // Atualiza o pedido selecionado se o modal ainda estiver aberto
         if (selectedOrder.value) {
           const { data } = await supabase.from('orders').select(`*, created_by:profiles!created_by(full_name), order_items(*)`).eq('id', selectedOrder.value.id).single();
           selectedOrder.value = data;
@@ -194,40 +207,62 @@ const updateItemStatus = async (item: OrderItem, newStatus: string, fileUrl?: st
     } catch (err: any) { console.error("Erro ao atualizar status do item:", err); }
 };
 
+const removeItemFromLocalState = (itemId: string) => {
+    let orderIndexToRemove = -1;
+    allOrders.value.forEach((order, index) => {
+        const itemIndex = order.order_items.findIndex(item => item.id === itemId);
+        if (itemIndex !== -1) {
+            order.order_items.splice(itemIndex, 1);
+        }
+        if (order.order_items.length === 0) {
+            orderIndexToRemove = index;
+        }
+    });
+    if (orderIndexToRemove !== -1) {
+        allOrders.value.splice(orderIndexToRemove, 1);
+    }
+};
+
 const handleReleaseItem = async (item: OrderItem) => {
     try {
-        const { error } = await supabase.rpc('update_order_item_status', {
+        const { error } = await supabase.rpc('schedule_item_for_production', {
             p_item_id: item.id,
-            p_new_status: 'production_queue',
-            p_final_art_url: item.stamp_image_url,
             p_profile_id: userStore.profile?.id
         });
         if (error) throw error;
-        await fetchDesignOrders();
+        removeItemFromLocalState(item.id);
         if (selectedOrder.value) {
-          const { data } = await supabase.from('orders').select(`*, created_by:profiles!created_by(full_name), order_items(*)`).eq('id', selectedOrder.value.id).single();
-          selectedOrder.value = data;
+            const itemIndex = selectedOrder.value.order_items.findIndex(i => i.id === item.id);
+            if (itemIndex > -1) {
+                selectedOrder.value.order_items.splice(itemIndex, 1);
+                if (selectedOrder.value.order_items.length === 0) {
+                    closeLaunchModal();
+                }
+            }
         }
     } catch(err: any) {
         console.error("Erro ao liberar item para produção:", err);
+        alert(`Erro ao liberar item: ${err.message}`);
     }
 };
 
 const releaseToProduction = async (order: Order) => {
     try {
-        const { error } = await supabase.rpc('release_order_to_production', {
-            p_order_id: order.id,
-            p_profile_id: userStore.profile?.id
-        });
-        if (error) throw error;
-        await fetchDesignOrders();
-        if(showLaunchModal.value) showLaunchModal.value = false;
-    } catch (err: any) { console.error("Erro ao liberar para produção:", err); }
+        const itemsToRelease = order.order_items.filter(item => item.status === 'approved_by_seller');
+        for (const item of itemsToRelease) {
+            await handleReleaseItem(item);
+        }
+        if(showLaunchModal.value) {
+            closeLaunchModal();
+        }
+    } catch (err: any) {
+        console.error("Erro ao liberar para produção:", err);
+        alert(`Erro ao liberar lançamento: ${err.message}`);
+    }
 }
 
 const onDragEnd = async (event: any) => {
-    // Lógica para quando um item for arrastado para outra coluna (se necessário)
-    // Por exemplo, mudar o design_tag
+    // Lógica futura para drag-and-drop pode ser adicionada aqui
 };
 
 onActivated(fetchDesignOrders);

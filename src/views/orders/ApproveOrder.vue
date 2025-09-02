@@ -143,8 +143,7 @@ const fetchOrderForApproval = async () => {
 };
 
 const approveItem = async (item: OrderItem) => {
-    // *** A CORREÇÃO PRINCIPAL ESTÁ AQUI ***
-    // Ao aprovar, passamos um comentário padrão para evitar o erro de valor nulo no banco.
+    // Ao aprovar, o status muda para 'approved_by_seller'
     await processDecision(item.id, 'approved_by_seller', `Arte para o item "${item.stamp_ref}" aprovada pelo vendedor.`);
 };
 
@@ -154,16 +153,36 @@ const openRejectModal = (item: OrderItem) => {
   showRejectModal.value = true;
 };
 
+// ==========================================================
+// ===== INÍCIO DA CORREÇÃO =================================
+// ==========================================================
+
 const rejectItem = async () => {
   if (!itemToReject.value || !rejectionComment.value.trim()) return;
-  await processDecision(itemToReject.value.id, 'changes_requested', rejectionComment.value);
-  showRejectModal.value = false;
+
+  loading.value = true;
+  try {
+    const { error: rpcError } = await supabase.rpc('request_item_changes', {
+      p_item_id: itemToReject.value.id,
+      p_comment: rejectionComment.value.trim(),
+      p_profile_id: userStore.profile?.id
+    });
+    if (rpcError) throw rpcError;
+
+    // Recarrega os dados para atualizar a UI
+    await fetchOrderForApproval();
+  } catch(e: any) {
+    error.value = `Erro ao solicitar alteração: ${e.message}`;
+  } finally {
+    showRejectModal.value = false;
+    loading.value = false;
+  }
 };
 
 const processDecision = async (itemId: string, decision: string, comment: string) => {
-  // A verificação de comentário vazio foi movida para o backend para maior segurança.
   loading.value = true;
   try {
+    // Usamos a função RPC antiga, pois ela ainda é válida para aprovações
     const { error: rpcError } = await supabase.rpc('process_seller_item_decision', {
       p_item_id: itemId,
       p_decision: decision,
@@ -179,6 +198,10 @@ const processDecision = async (itemId: string, decision: string, comment: string
     loading.value = false;
   }
 };
+
+// ==========================================================
+// ===== FIM DA CORREÇÃO ====================================
+// ==========================================================
 
 onMounted(fetchOrderForApproval);
 </script>
