@@ -16,10 +16,10 @@ const getAuthHeaders = () => ({
 type Endereco = { cep?: string; logradouro?: string; numero?: string; complemento?: string; bairro?: string; cidade_id?: string; nome_cidade?: string; estado?: string; }
 type ClientPayload = { nome: string; tipo_pessoa: 'PF' | 'PJ' | 'ES'; cpf_cnpj?: string; email?: string; telefone?: string; celular?: string; enderecos?: { endereco: Endereco }[]; cpf?: string; cnpj?: string; };
 type ClientResponse = { id: number; nome: string; }
-type Product = { id: number; nome: string; };
-type Service = { id: number; nome: string; };
+type Product = { id: string; nome: string; estoque: number; [key: string]: any; };
+type Service = { id: string; nome: string; imagem_url?: string; [key: string]: any; };
 type SaleStatus = { id: number; nome: string; };
-type SalePayload = { cliente_id: number; vendedor_id?: string; data: string; situacao_id: number; produtos: any[]; servicos: any[]; };
+type SalePayload = { cliente_id: number; situacao_id: number; produtos: { produto_id: string; quantidade: number; valor_unitario: string; }[]; servicos: { servico_id: string; quantidade: number; valor_unitario: string; }[]; };
 
 const gestaoApi = {
   async cadastrarCliente(clienteData: ClientPayload): Promise<ClientResponse> {
@@ -28,9 +28,7 @@ const gestaoApi = {
       const value = clienteData[key as keyof ClientPayload];
       if (Array.isArray(value) && value.length === 0) continue;
       if (typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0) continue;
-      if (value !== null && value !== '') {
-        (payload as any)[key] = value;
-      }
+      if (value !== null && value !== '') { (payload as any)[key] = value; }
     }
     if (payload.cpf_cnpj) {
         if (payload.tipo_pessoa === 'PF') payload.cpf = payload.cpf_cnpj;
@@ -53,6 +51,26 @@ const gestaoApi = {
       const responseData = await response.json();
       return responseData.data || [];
     } catch (error) { console.error('Erro em buscarClientes:', error); return []; }
+  },
+
+  async buscarProdutos(): Promise<Product[]> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/produtos`, { headers: getAuthHeaders() });
+      if (!response.ok) { throw new Error(`Falha na requisição de produtos: ${response.status} ${response.statusText}`); }
+      const responseData = await response.json();
+      if (responseData.status !== 'success') { throw new Error(responseData?.msg || 'Erro ao buscar produtos da API externa.'); }
+      return responseData.data || [];
+    } catch (error) { console.error('Erro em buscarProdutos:', error); throw error; }
+  },
+
+  async buscarServicos(): Promise<Service[]> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/servicos`, { headers: getAuthHeaders() });
+        if (!response.ok) { throw new Error(`Falha na requisição de serviços: ${response.status} ${response.statusText}`); }
+        const responseData = await response.json();
+        if (responseData.status !== 'success') { throw new Error(responseData?.msg || 'Erro ao buscar serviços da API externa.'); }
+        return responseData.data || [];
+    } catch (error) { console.error('Erro em buscarServicos:', error); throw error; }
   },
 
   async buscarCidades(estadoId: number): Promise<{id: string, nome: string}[]> {
@@ -82,41 +100,57 @@ const gestaoApi = {
     } catch (error) { console.error('Erro em getSituacoesVenda:', error); throw error; }
   },
 
-  async findOrCreateProduto(nomeProduto: string): Promise<Product> {
+  // --- NOVAS FUNÇÕES ---
+  async buscarProdutoPorId(id: string): Promise<any> {
     try {
-      const responseGet = await fetch(`${API_BASE_URL}/produtos?nome=${encodeURIComponent(nomeProduto)}`, { headers: getAuthHeaders() });
-      const dataGet = await responseGet.json();
-      if (dataGet.data && dataGet.data.length > 0) { return dataGet.data[0]; }
-
-      const payload = { nome: nomeProduto, codigo_interno: `TEC-${Date.now()}`, valor_custo: 0 };
-      const responsePost = await fetch(`${API_BASE_URL}/produtos`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(payload) });
-      const dataPost = await responsePost.json();
-      if (!responsePost.ok || dataPost.status !== 'success') { throw new Error(dataPost?.msg || 'Erro ao cadastrar novo produto na API externa.'); }
-      return dataPost.data;
-    } catch (error) { console.error(`Erro em findOrCreateProduto para "${nomeProduto}":`, error); throw error; }
+        const response = await fetch(`${API_BASE_URL}/produtos/${id}`, { headers: getAuthHeaders() });
+        if (!response.ok) throw new Error(`Produto ID ${id} não encontrado.`);
+        const responseData = await response.json();
+        if (responseData.status !== 'success') throw new Error(responseData?.msg || 'Erro ao buscar produto.');
+        return responseData.data;
+    } catch (error) {
+        console.error(`Erro em buscarProdutoPorId para ID "${id}":`, error);
+        throw error;
+    }
   },
 
-  async findOrCreateServico(nomeServico: string): Promise<Service> {
+  async atualizarEstoqueProduto(produtoId: string, novoEstoque: number): Promise<any> {
     try {
-      const responseGet = await fetch(`${API_BASE_URL}/servicos?nome=${encodeURIComponent(nomeServico)}`, { headers: getAuthHeaders() });
-      const dataGet = await responseGet.json();
-      if (dataGet.data && dataGet.data.length > 0) { return dataGet.data[0]; }
+        const produto = await this.buscarProdutoPorId(produtoId);
+        const payload = { ...produto, estoque: novoEstoque.toString() };
 
-      const payload = { nome: nomeServico, codigo: `EST-${Date.now()}` };
-      const responsePost = await fetch(`${API_BASE_URL}/servicos`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(payload) });
-      const dataPost = await responsePost.json();
-       if (!responsePost.ok || dataPost.status !== 'success') { throw new Error(dataPost?.msg || 'Erro ao cadastrar novo serviço na API externa.'); }
-      return dataPost.data;
-    } catch (error) { console.error(`Erro em findOrCreateServico para "${nomeServico}":`, error); throw error; }
+        const response = await fetch(`${API_BASE_URL}/produtos/${produtoId}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(payload)
+        });
+        const responseData = await response.json();
+        if (!response.ok || responseData.status !== 'success') {
+            throw new Error(responseData?.msg || `Erro ao atualizar estoque do produto ID ${produtoId}`);
+        }
+        return responseData.data;
+    } catch (error) {
+        console.error(`Erro em atualizarEstoqueProduto para ID "${produtoId}":`, error);
+        throw error;
+    }
   },
 
   async cadastrarVenda(vendaData: SalePayload): Promise<any> {
     try {
-      const response = await fetch(`${API_BASE_URL}/vendas`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(vendaData) });
+      const response = await fetch(`${API_BASE_URL}/vendas`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(vendaData)
+      });
       const responseData = await response.json();
-      if (!response.ok || responseData.status !== 'success') { throw new Error(responseData?.msg || 'Erro ao cadastrar a venda na API externa.'); }
+      if (!response.ok || responseData.status !== 'success') {
+          throw new Error(responseData?.msg || responseData.erros?.join(', ') || 'Erro ao cadastrar a venda na API externa.');
+      }
       return responseData.data;
-    } catch (error) { console.error('Erro em cadastrarVenda:', error); throw error; }
+    } catch (error) {
+        console.error('Erro em cadastrarVenda:', error);
+        throw error;
+    }
   }
 };
 

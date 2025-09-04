@@ -10,7 +10,7 @@
         <div class="pa-2 text-right">
           <div class="text-caption text-grey">Próximo Pedido</div>
           <div v-if="loadingNextOrderNumber" class="text-center">
-             <v-progress-circular indeterminate size="20" width="2"></v-progress-circular>
+            <v-progress-circular indeterminate size="20" width="2"></v-progress-circular>
           </div>
           <div v-else class="text-h6 font-weight-bold">#{{ String(nextOrderNumber).padStart(4, '0') }}</div>
         </div>
@@ -37,10 +37,10 @@
                   :loading="isSearchingClients"
                   no-filter
                 >
-                   <template v-slot:append>
+                  <template v-slot:append>
                     <v-tooltip text="Cadastrar Novo Cliente" location="top">
                       <template v-slot:activator="{ props }">
-                         <v-btn v-bind="props" icon="mdi-account-plus-outline" variant="text" @click="showClientModal = true"></v-btn>
+                        <v-btn v-bind="props" icon="mdi-account-plus-outline" variant="text" @click="showClientModal = true"></v-btn>
                       </template>
                     </v-tooltip>
                   </template>
@@ -71,11 +71,11 @@
                 <v-file-input
                   v-if="orderHeader.has_down_payment"
                   v-model="orderHeader.down_payment_proof_file"
+                  @change="handleProofFileChange"
                   label="Comprovante de Entrada"
                   variant="outlined"
                   prepend-icon="mdi-upload"
                   accept="image/*,.pdf"
-                  :rules="[rules.requiredFile]"
                   class="mt-4"
                 ></v-file-input>
               </v-form>
@@ -100,35 +100,35 @@
                         @click="editItem(index)"
                       >
                         <template #prepend>
-                            <v-img
-                                v-if="item.stamp_image_file_preview"
-                                :src="item.stamp_image_file_preview"
-                                width="40"
-                                height="40"
-                                cover
-                                class="rounded mr-4"
-                            >
-                                <template v-slot:placeholder>
-                                    <div class="d-flex align-center justify-center fill-height">
-                                        <v-progress-circular color="grey-lighten-4" indeterminate></v-progress-circular>
-                                    </div>
-                                </template>
-                            </v-img>
-                            <v-icon v-else class="mr-4" size="40" color="grey-darken-1">mdi-image-multiple-outline</v-icon>
+                          <v-img
+                            v-if="item.stamp_image_file_preview"
+                            :src="item.stamp_image_file_preview"
+                            width="40"
+                            height="40"
+                            cover
+                            class="rounded mr-4"
+                          >
+                            <template v-slot:placeholder>
+                              <div class="d-flex align-center justify-center fill-height">
+                                <v-progress-circular color="grey-lighten-4" indeterminate></v-progress-circular>
+                              </div>
+                            </template>
+                          </v-img>
+                          <v-icon v-else class="mr-4" size="40" color="grey-darken-1">mdi-image-multiple-outline</v-icon>
                         </template>
                         <v-list-item-title class="font-weight-bold d-flex align-center">
-                            {{ item.stamp_ref || 'Novo Item' }}
-                            <v-chip
-                                v-if="item.design_tag"
-                                :color="tagColorMap[item.design_tag]"
-                                size="x-small"
-                                class="ml-2"
-                                label
-                            >
-                                {{ item.design_tag }}
-                            </v-chip>
+                          {{ item.stamp_ref || 'Novo Item' }}
+                          <v-chip
+                            v-if="item.design_tag"
+                            :color="tagColorMap[item.design_tag]"
+                            size="x-small"
+                            class="ml-2"
+                            label
+                          >
+                            {{ item.design_tag }}
+                          </v-chip>
                         </v-list-item-title>
-                        <v-list-item-subtitle>{{ item.fabric_type || 'Sem tecido' }} - {{ item.quantity_meters || 0 }}{{ getStockForItem(item)?.unit_of_measure === 'kg' ? 'kg' : 'm' }}</v-list-item-subtitle>
+                        <v-list-item-subtitle>{{ item.fabric_type || 'Sem tecido' }} - {{ item.quantity_meters || 0 }}m</v-list-item-subtitle>
                         <template v-slot:append>
                           <v-btn icon="mdi-delete-outline" variant="text" size="small" color="error" @click.stop="removeItem(index)"></v-btn>
                         </template>
@@ -152,50 +152,54 @@
                           <v-col cols="12" sm="6">
                             <v-autocomplete
                               v-model="editedItem.fabric_type"
-                              :items="stockItems"
-                              item-title="fabric_type"
-                              item-value="fabric_type"
+                              :items="gestaoClickProducts"
+                              item-title="nome"
+                              item-value="nome"
                               label="Produto (Base)"
                               variant="outlined"
                               density="compact"
-                              :loading="loadingStock"
+                              :loading="loadingGestaoClickProducts"
                               :rules="[rules.required]"
                             >
-                              <template v-slot:item="{ props, item: stockItem }">
-                                <v-list-item v-bind="props" :subtitle="`Disponível: ${stockItem.raw.available_meters}m`"></v-list-item>
+                              <template v-slot:item="{ props, item }">
+                                <v-list-item v-bind="props" :subtitle="`Estoque: ${item.raw.estoque}`"></v-list-item>
                               </template>
                             </v-autocomplete>
                           </v-col>
                           <v-col cols="12" sm="6">
-                            <v-text-field
-                              v-model="editedItem.stamp_ref"
-                              label="Serviço (Estampa - Referência)"
+                            <v-autocomplete
+                              v-model="editedItem.stamp_ref_id"
+                              :items="gestaoClickServices"
+                              item-title="nome"
+                              item-value="id"
+                              label="Serviço (Estampa)"
                               variant="outlined"
                               density="compact"
                               :rules="[rules.required]"
-                            ></v-text-field>
+                              :loading="loadingGestaoClickServices"
+                            ></v-autocomplete>
                           </v-col>
                           <v-col cols="12" sm="6">
                             <v-text-field
                               v-model.number="editedItem.quantity_meters"
-                              :label="quantityLabel"
+                              label="Metragem (metros)"
                               type="number"
                               variant="outlined"
                               density="compact"
                               :rules="[rules.required, rules.positive]"
                               :disabled="!editedItem.fabric_type"
                             ></v-text-field>
-                            <div v-if="getStockForItem(editedItem)" class="mt-n2 mb-4 px-2">
+                            <div v-if="selectedProductStock !== null" class="mt-n2 mb-4 px-2">
                               <div class="d-flex justify-space-between text-caption text-grey">
-                                <span v-if="quantityInMeters > getStockForItem(editedItem).available_meters" class="text-error">
+                                <span v-if="editedItem.quantity_meters > selectedProductStock" class="text-error">
                                   Atenção: Estoque ficará negativo!
                                 </span>
                                 <span v-else>Uso do estoque disponível:</span>
-                                <span>{{ getStockForItem(editedItem).available_meters }}m</span>
+                                <span>{{ selectedProductStock }}m</span>
                               </div>
                               <v-progress-linear
-                                :model-value="(quantityInMeters / getStockForItem(editedItem).available_meters) * 100"
-                                :color="getStockUsageColor(editedItem)"
+                                :model-value="((editedItem.quantity_meters || 0) / selectedProductStock) * 100"
+                                :color="getStockUsageColor(editedItem.quantity_meters)"
                                 height="6"
                                 rounded
                               ></v-progress-linear>
@@ -204,14 +208,13 @@
                           <v-col cols="12" sm="6">
                             <v-file-input
                               v-model="editedItem.stamp_image_file"
+                              @change="handleFileChange"
                               label="Anexar Estampa"
                               variant="outlined"
                               density="compact"
                               prepend-icon=""
                               prepend-inner-icon="mdi-image-plus-outline"
                               accept="image/*,.pdf,.cdr,.ai"
-                              :rules="[rules.requiredFile]"
-                              @change="handleFileChange"
                             ></v-file-input>
                           </v-col>
                           <v-col cols="12">
@@ -226,16 +229,16 @@
                           <v-col cols="12">
                             <label class="v-label text-caption mb-2 d-block">Destino no Design</label>
                             <div class="d-flex ga-2 flex-wrap">
-                                <v-btn
-                                    v-for="tag in (Object.keys(tagColorMap) as Array<keyof typeof tagColorMap>)"
-                                    :key="tag"
-                                    :color="tagColorMap[tag]"
-                                    :variant="editedItem.design_tag === tag ? 'flat' : 'outlined'"
-                                    size="small"
-                                    @click="editedItem.design_tag = tag"
-                                >
-                                    {{ tag }}
-                                </v-btn>
+                              <v-btn
+                                v-for="tag in (Object.keys(tagColorMap) as Array<keyof typeof tagColorMap>)"
+                                :key="tag"
+                                :color="tagColorMap[tag]"
+                                :variant="editedItem.design_tag === tag ? 'flat' : 'outlined'"
+                                size="small"
+                                @click="editedItem.design_tag = tag"
+                              >
+                                {{ tag }}
+                              </v-btn>
                             </div>
                           </v-col>
                         </v-row>
@@ -271,26 +274,26 @@
       <div v-else class="pa-8 text-center">
         <v-icon size="80" color="success" class="mb-4">mdi-check-circle-outline</v-icon>
         <h2 class="text-h5 font-weight-bold">Pedido #{{ String(createdOrderNumber).padStart(4, '0') }} criado com sucesso!</h2>
-        <p class="mt-2 text-medium-emphasis">O pedido foi enviado para a equipe de design.</p>
+        <p class="mt-2 text-medium-emphasis">O pedido foi enviado para a equipe de design e para o sistema de gestão.</p>
         <div class="mt-8">
-            <v-btn
-                color="primary"
-                size="large"
-                variant="flat"
-                class="mr-4"
-                @click="generateAndUploadQuotePdf"
-                :loading="isGeneratingPdf"
-            >
-                <v-icon left>mdi-file-pdf-box</v-icon>
-                Gerar e Anexar Orçamento
-            </v-btn>
-            <v-btn
-                size="large"
-                variant="tonal"
-                @click="resetForm"
-            >
-                Lançar Novo Pedido
-            </v-btn>
+          <v-btn
+            color="primary"
+            size="large"
+            variant="flat"
+            class="mr-4"
+            @click="generateAndUploadQuotePdf"
+            :loading="isGeneratingPdf"
+          >
+            <v-icon left>mdi-file-pdf-box</v-icon>
+            Gerar e Anexar Orçamento
+          </v-btn>
+          <v-btn
+            size="large"
+            variant="tonal"
+            @click="resetForm"
+          >
+            Lançar Novo Pedido
+          </v-btn>
         </div>
       </div>
 
@@ -319,36 +322,32 @@ import { ptBR } from 'date-fns/locale';
 import ClientFormModal from '@/components/ClientFormModal.vue';
 import { gestaoApi } from '@/api/gestaoClick';
 
-type StockItem = {
-    fabric_type: string;
-    available_meters: number;
-    unit_of_measure?: 'metro' | 'kg';
-    base_price?: number;
-    rendimento?: number | null;
-};
-
+// --- Type Definitions ---
 type OrderHeader = {
-    customer_id: number | null; // Alterado para ID
-    customer_name: string; // Mantido para exibição
+    customer_id: number | null;
+    customer_name: string;
     has_down_payment: boolean;
-    down_payment_proof_file: File[] | null;
+    down_payment_proof_file: File | null;
 };
 type OrderItem = {
   fabric_type: string | null;
+  stamp_ref_id: string | null;
   stamp_ref: string;
   quantity_meters: number | null;
-  stamp_image_file: File[] | null;
+  stamp_image_file: File | null;
   stamp_image_file_preview: string | null;
   notes: string;
   design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização' | 'Aprovado';
 };
 type Feedback = { message: string; type: 'success' | 'error'; }
 type Client = { id: number; nome: string; }
+type GestaoClickProduct = { id: string; nome: string; estoque: number | string; };
+type GestaoClickService = { id: string; nome: string; };
+type SaleStatus = { id: number; nome: string; };
 
+// --- Component State ---
 const userStore = useUserStore();
 const step = ref(1);
-const stockItems = ref<StockItem[]>([]);
-const loadingStock = ref(true);
 const isSubmitting = ref(false);
 const step1Form = ref<VForm | null>(null);
 const itemForm = ref<VForm | null>(null);
@@ -356,21 +355,26 @@ const stepperItems = [
   { title: 'Cliente & Vendedor', icon: 'mdi-account-cash' },
   { title: 'Itens do Pedido', icon: 'mdi-format-list-bulleted-square' }
 ];
-
 const nextOrderNumber = ref<number | null>(null);
 const loadingNextOrderNumber = ref(true);
-
 const orderCreatedSuccess = ref(false);
 const createdOrderId = ref<string | null>(null);
 const createdOrderNumber = ref<number | null>(null);
 const isGeneratingPdf = ref(false);
 
-// State para busca e cadastro de cliente
+// --- Client Management State ---
 const showClientModal = ref(false);
 const clientList = ref<Client[]>([]);
 const clientSearch = ref('');
 const isSearchingClients = ref(false);
 let searchTimeout: NodeJS.Timeout;
+
+// --- Gestao Click Data State ---
+const gestaoClickProducts = ref<GestaoClickProduct[]>([]);
+const loadingGestaoClickProducts = ref(true);
+const gestaoClickServices = ref<GestaoClickService[]>([]);
+const loadingGestaoClickServices = ref(true);
+const saleStatuses = ref<SaleStatus[]>([]);
 
 const tagColorMap = {
   'Desenvolvimento': '#40c4ff',
@@ -383,6 +387,7 @@ const orderHeader = reactive<OrderHeader>({ customer_id: null, customer_name: ''
 
 const createNewItem = (): OrderItem => ({
   fabric_type: null,
+  stamp_ref_id: null,
   stamp_ref: '',
   quantity_meters: null,
   stamp_image_file: null,
@@ -398,29 +403,40 @@ const isEditing = computed(() => editedItemIndex.value !== null);
 
 const feedback = reactive<Feedback>({ message: '', type: 'success' });
 
+
+// --- Validation and Computed Properties ---
 const rules = {
   required: (v: any) => !!v || 'Campo obrigatório.',
   positive: (v: number | null) => (v != null && v > 0) || 'O valor deve ser maior que zero.',
-  requiredFile: (v: File[] | null) => (!!v && v.length > 0) || 'Arquivo é obrigatório.',
 };
 
-const quantityLabel = computed(() => {
-    const stockItem = getStockForItem(editedItem.value);
-    return stockItem?.unit_of_measure === 'kg' ? 'Quantidade (kg)' : 'Metragem (metros)';
+watch(() => editedItem.value.stamp_ref_id, (serviceId) => {
+    if (!serviceId) {
+        editedItem.value.stamp_ref = '';
+        return;
+    }
+    const service = gestaoClickServices.value.find(s => s.id === serviceId);
+    if (service) {
+        editedItem.value.stamp_ref = service.nome;
+    }
 });
 
-const quantityInMeters = computed(() => {
-    const stockItem = getStockForItem(editedItem.value);
-    const quantity = editedItem.value.quantity_meters || 0;
-    if (stockItem?.unit_of_measure === 'kg') {
-        return quantity * (stockItem.rendimento || 0);
-    }
-    return quantity;
+const selectedProductStock = computed(() => {
+    if (!editedItem.value.fabric_type) return null;
+    const product = gestaoClickProducts.value.find(p => p.nome === editedItem.value.fabric_type);
+    return product ? parseFloat(product.estoque as string) : null;
 });
+
+const getStockUsageColor = (quantity: number | null) => {
+  if (selectedProductStock.value === null || !quantity) return 'primary';
+  if (quantity > selectedProductStock.value) return 'error';
+  if (quantity > selectedProductStock.value * 0.8) return 'warning';
+  return 'success';
+}
 
 const isStep1Valid = computed(() => {
   if (!orderHeader.customer_id) return false;
-  if (orderHeader.has_down_payment && (!orderHeader.down_payment_proof_file || orderHeader.down_payment_proof_file.length === 0)) {
+  if (orderHeader.has_down_payment && !orderHeader.down_payment_proof_file) {
     return false;
   }
   return true;
@@ -428,44 +444,103 @@ const isStep1Valid = computed(() => {
 
 const isItemFormValid = computed(() => {
   const item = editedItem.value;
-  const hasText = !!item.fabric_type && !!item.stamp_ref?.trim();
+  const hasText = !!item.fabric_type && !!item.stamp_ref_id;
   const hasNumbers = !!item.quantity_meters && item.quantity_meters > 0;
-  const hasFile = !!item.stamp_image_file && item.stamp_image_file.length > 0;
+  const hasFile = !!item.stamp_image_file;
   return hasText && hasNumbers && hasFile;
 });
 
+// --- API Calls and Data Fetching ---
 watch(clientSearch, (newValue) => {
+    if (!newValue) { return; }
     isSearchingClients.value = true;
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(async () => {
-        const results = await gestaoApi.buscarClientes(newValue);
-        clientList.value = results;
+        clientList.value = await gestaoApi.buscarClientes(newValue);
         isSearchingClients.value = false;
-    }, 500); // Debounce de 500ms
+    }, 500);
 });
 
+const fetchGestaoClickData = async () => {
+    loadingGestaoClickProducts.value = true;
+    loadingGestaoClickServices.value = true;
+    try {
+        const [products, services, statuses] = await Promise.all([
+            gestaoApi.buscarProdutos(),
+            gestaoApi.buscarServicos(),
+            gestaoApi.getSituacoesVenda(),
+        ]);
+        gestaoClickProducts.value = products;
+        gestaoClickServices.value = services;
+        saleStatuses.value = statuses;
+    } catch (error) {
+        showFeedback('Não foi possível carregar dados do Gestão Click (Produtos/Serviços).', 'error');
+    } finally {
+        loadingGestaoClickProducts.value = false;
+        loadingGestaoClickServices.value = false;
+    }
+};
+
 const handleClientCreated = (newClient: Client) => {
-  clientList.value.unshift(newClient); // Adiciona no topo da lista
-  orderHeader.customer_id = newClient.id; // Seleciona o novo cliente
+  clientList.value.unshift(newClient);
+  orderHeader.customer_id = newClient.id;
   showClientModal.value = false;
   showFeedback(`Cliente "${newClient.nome}" cadastrado com sucesso!`, 'success');
 };
 
+const fetchNextOrderNumber = async () => {
+    loadingNextOrderNumber.value = true;
+    try {
+        const { data, error } = await supabase.rpc('get_next_order_number');
+        if (error) throw error;
+        nextOrderNumber.value = data;
+    } catch (e) {
+        console.error("Erro ao buscar próximo número do pedido:", e);
+        nextOrderNumber.value = 0;
+    } finally {
+        loadingNextOrderNumber.value = false;
+    }
+};
+
+const uploadFile = async (file: File | Blob, bucket: string, path: string): Promise<string> => {
+  const { data, error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true });
+  if (error) throw error;
+  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+};
+
+// --- Form and Stepper Logic ---
+
+const handleFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (target.files && target.files[0]) {
+    const file = target.files[0];
+    editedItem.value.stamp_image_file = file;
+    // Limpa a URL antiga para evitar memory leak
+    if (editedItem.value.stamp_image_file_preview) {
+      URL.revokeObjectURL(editedItem.value.stamp_image_file_preview);
+    }
+    // Cria uma nova URL para o preview
+    editedItem.value.stamp_image_file_preview = URL.createObjectURL(file);
+  } else {
+    editedItem.value.stamp_image_file = null;
+    editedItem.value.stamp_image_file_preview = null;
+  }
+};
+
+const handleProofFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (target.files && target.files[0]) {
+    orderHeader.down_payment_proof_file = target.files[0];
+  } else {
+    orderHeader.down_payment_proof_file = null;
+  }
+};
 
 const nextStep = async () => {
   if (step1Form.value) {
     const { valid } = await step1Form.value.validate();
     if (valid && isStep1Valid.value) step.value++;
   }
-}
-
-const getStockForItem = (item: OrderItem) => stockItems.value.find(s => s.fabric_type === item.fabric_type);
-const getStockUsageColor = (item: OrderItem) => {
-  const stockItem = getStockForItem(item);
-  if (!stockItem || !item.quantity_meters) return 'primary';
-  if (quantityInMeters.value > stockItem.available_meters) return 'error';
-  if (quantityInMeters.value > stockItem.available_meters * 0.8) return 'warning';
-  return 'success';
 }
 
 const prepareNewItem = async () => {
@@ -485,30 +560,21 @@ const removeItem = (index: number) => {
   orderItems.value.splice(index, 1);
   if (editedItemIndex.value === index) {
     prepareNewItem();
+  } else if (editedItemIndex.value !== null && editedItemIndex.value > index) {
+    editedItemIndex.value--;
   }
 }
 
-const handleFileChange = (event: Event) => {
-    const input = event.target as HTMLInputElement;
-    const files = input.files;
-    if (files && files[0]) {
-        editedItem.value.stamp_image_file = [files[0]];
-        editedItem.value.stamp_image_file_preview = URL.createObjectURL(files[0]);
-    } else {
-        editedItem.value.stamp_image_file = null;
-        editedItem.value.stamp_image_file_preview = null;
-    }
-};
-
-
 const saveOrUpdateItem = async () => {
-  if (!isItemFormValid.value) {
-    showFeedback('Por favor, preencha todos os campos obrigatórios, incluindo a estampa.', 'error');
-    return;
+  if (itemForm.value) {
+    const { valid } = await itemForm.value.validate();
+    if (!valid || !isItemFormValid.value) { // Checagem dupla para garantir
+      showFeedback('Por favor, preencha todos os campos obrigatórios, incluindo o anexo.', 'error');
+      return;
+    }
   }
 
   const rawItem = toRaw(editedItem.value);
-
   if (isEditing.value && editedItemIndex.value !== null) {
     orderItems.value[editedItemIndex.value] = structuredClone(rawItem);
   } else {
@@ -517,45 +583,48 @@ const saveOrUpdateItem = async () => {
   await prepareNewItem();
 };
 
-const fetchStock = async () => {
-  loadingStock.value = true;
-  try {
-    const { data, error } = await supabase.from('stock').select('*').order('fabric_type');
-    if (error) throw error;
-    stockItems.value = data || [];
-  } catch (error) {
-    showFeedback('Não foi possível carregar os materiais do estoque.', 'error');
-  } finally {
-    loadingStock.value = false;
-  }
-};
+// --- Submission and Reset Logic ---
+const sanitizeName = (name: string) => name.replace(/\s/g, '_').replace(/[^\w.\-]/g, '');
 
-const fetchNextOrderNumber = async () => {
-    loadingNextOrderNumber.value = true;
-    try {
-        const { data, error } = await supabase.rpc('get_next_order_number');
-        if (error) throw error;
-        nextOrderNumber.value = data;
-    } catch (e) {
-        console.error("Erro ao buscar próximo número do pedido:", e);
-        nextOrderNumber.value = 0;
-    } finally {
-        loadingNextOrderNumber.value = false;
+const syncOrderWithGestaoClick = async () => {
+    if (!orderHeader.customer_id) {
+        throw new Error("ID do cliente não encontrado para sincronização.");
+    }
+    const situacao = saleStatuses.value.find(s => s.nome.toLowerCase() === 'em aberto') || saleStatuses.value[0];
+    if (!situacao) {
+        throw new Error("Não foi possível encontrar uma situação de venda válida no Gestão Click.");
+    }
+    const salePayload = {
+        cliente_id: orderHeader.customer_id,
+        situacao_id: situacao.id,
+        produtos: orderItems.value.map(item => {
+            const product = gestaoClickProducts.value.find(p => p.nome === item.fabric_type);
+            if (!product) throw new Error(`Produto ${item.fabric_type} não encontrado no Gestão Click.`);
+            return {
+                produto_id: product.id,
+                quantidade: item.quantity_meters || 0,
+                valor_unitario: "0.00"
+            };
+        }),
+        servicos: orderItems.value.map(item => ({
+            servico_id: item.stamp_ref_id!,
+            quantidade: 1,
+            valor_unitario: "0.00"
+        }))
+    };
+    await gestaoApi.cadastrarVenda(salePayload);
+    for (const item of orderItems.value) {
+        const product = gestaoClickProducts.value.find(p => p.nome === item.fabric_type);
+        if (product) {
+            const currentStock = parseFloat(product.estoque as string);
+            const quantityUsed = item.quantity_meters || 0;
+            const newStock = currentStock - quantityUsed;
+            product.estoque = newStock;
+            await gestaoApi.atualizarEstoqueProduto(product.id, newStock);
+        }
     }
 };
 
-const showFeedback = (message: string, type: 'success' | 'error') => {
-  feedback.message = message;
-  feedback.type = type;
-};
-
-const uploadFile = async (file: File | Blob, bucket: string, path: string): Promise<string> => {
-  const { data, error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true });
-  if (error) throw error;
-  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-};
-
-const sanitizeName = (name: string) => name.replace(/\s/g, '_').replace(/[^\w.\-]/g, '');
 
 const submitLaunch = async () => {
   if (orderItems.value.length === 0) {
@@ -564,46 +633,32 @@ const submitLaunch = async () => {
   }
   isSubmitting.value = true;
   feedback.message = '';
-
   try {
     const selectedClient = clientList.value.find(c => c.id === orderHeader.customer_id);
-    if (!selectedClient) {
-        throw new Error("Cliente selecionado não encontrado.");
-    }
-
+    if (!selectedClient) throw new Error("Cliente selecionado não encontrado na lista.");
+    await syncOrderWithGestaoClick();
     let proofPublicUrl: string | null = null;
-    if (orderHeader.has_down_payment && orderHeader.down_payment_proof_file?.[0]) {
-      const file = orderHeader.down_payment_proof_file[0];
+    if (orderHeader.has_down_payment && orderHeader.down_payment_proof_file) {
+      const file = orderHeader.down_payment_proof_file;
       const baseName = sanitizeName(file.name);
       const filePath = `proofs/${Date.now()}-${baseName}`;
       proofPublicUrl = await uploadFile(file, 'proofs', filePath);
     }
-
     const itemsPayload = await Promise.all(orderItems.value.map(async (item, index) => {
-      const file = item.stamp_image_file?.[0];
-      if (!file) {
-        throw new Error(`O item "${item.stamp_ref || `Item ${index + 1}`}" está sem um arquivo de estampa.`);
-      }
-      const baseName = sanitizeName(file.name);
-      const filePath = `arts/${Date.now()}-item${index}-${baseName}`;
-      const publicUrl = await uploadFile(file, 'arts', filePath);
-
-      const stockItem = getStockForItem(item);
-      let finalMeters = item.quantity_meters || 0;
-      if (stockItem?.unit_of_measure === 'kg') {
-          finalMeters = finalMeters * (stockItem.rendimento || 0);
-      }
-
-      return {
-        fabric_type: item.fabric_type,
-        stamp_ref: item.stamp_ref,
-        quantity_meters: finalMeters,
-        stamp_image_url: publicUrl,
-        design_tag: item.design_tag,
-        notes: item.notes,
-      };
+        const file = item.stamp_image_file;
+        if (!file) throw new Error(`O item "${item.stamp_ref}" está sem uma imagem anexada.`);
+        const baseName = sanitizeName(file.name);
+        const filePath = `arts/${Date.now()}-item${index}-${baseName}`;
+        const publicUrl = await uploadFile(file, 'arts', filePath);
+        return {
+            fabric_type: item.fabric_type,
+            stamp_ref: item.stamp_ref,
+            quantity_meters: item.quantity_meters,
+            stamp_image_url: publicUrl,
+            design_tag: item.design_tag,
+            notes: item.notes,
+        };
     }));
-
     const { data: newOrderNumber, error: rpcError } = await supabase.rpc('create_launch_order', {
       p_customer_name: selectedClient.nome,
       p_created_by: userStore.profile?.id,
@@ -612,99 +667,89 @@ const submitLaunch = async () => {
       p_down_payment_proof_url: proofPublicUrl,
       p_order_items: itemsPayload
     });
-
     if (rpcError) throw rpcError;
-
     const { data: orderData } = await supabase.from('orders').select('id').eq('order_number', newOrderNumber).single();
-    if (orderData) {
-        createdOrderId.value = orderData.id;
-    }
+    if (orderData) createdOrderId.value = orderData.id;
     createdOrderNumber.value = newOrderNumber;
     orderCreatedSuccess.value = true;
-
+    showFeedback("Pedido criado e sincronizado com sucesso!", "success");
   } catch (error: any) {
     console.error('Erro ao criar lançamento:', error);
-    showFeedback(`Erro ao criar lançamento: ${error.message || 'Erro desconhecido.'}`, 'error');
+    let errorMessage = error.message || 'Erro desconhecido.';
+    if (errorMessage.includes('Gestão Click')) {
+        errorMessage = `Falha na integração com o sistema de gestão: ${errorMessage}`;
+    }
+    showFeedback(`Erro ao criar lançamento: ${errorMessage}`, 'error');
   } finally {
     isSubmitting.value = false;
   }
 };
 
-const formatCurrency = (value: number | undefined) => {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+
+const resetForm = () => {
+  orderHeader.customer_id = null;
+  orderHeader.customer_name = '';
+  orderHeader.has_down_payment = false;
+  orderHeader.down_payment_proof_file = null;
+  clientSearch.value = '';
+  clientList.value = [];
+  orderItems.value = [];
+  prepareNewItem();
+  step.value = 1;
+  orderCreatedSuccess.value = false;
+  createdOrderId.value = null;
+  createdOrderNumber.value = null;
+  fetchNextOrderNumber();
+  fetchGestaoClickData();
 };
 
-const imageToBase64 = (url: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = 'Anonymous';
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx?.drawImage(img, 0, 0);
-            const dataURL = canvas.toDataURL('image/png');
-            resolve(dataURL);
-        };
-        img.onerror = reject;
-        img.src = url;
-    });
+const showFeedback = (message: string, type: 'success' | 'error') => {
+  feedback.message = message;
+  feedback.type = type;
 };
+
+const formatCurrency = (value: number | undefined) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+
+const imageToBase64 = (url: string): Promise<string> => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = reject;
+    img.src = url;
+});
 
 const generateAndUploadQuotePdf = async () => {
     isGeneratingPdf.value = true;
     try {
-        const selectedClient = clientList.value.find(c => c.id === orderHeader.customer_id) || { nome: 'N/A' };
-        const itemDetailsWithPrice = await Promise.all(
-            orderItems.value.map(async (item) => {
-                const stockInfo = stockItems.value.find(s => s.fabric_type === item.fabric_type);
-                const price = stockInfo?.base_price || 0;
-                const unit = stockInfo?.unit_of_measure === 'kg' ? 'kg' : 'm';
-                const total = (item.quantity_meters || 0) * price;
-                return {
-                    base: item.fabric_type,
-                    estampa: item.stamp_ref,
-                    quantidade: `${item.quantity_meters}${unit}`,
-                    valorUnit: `${formatCurrency(price)} /${unit}`,
-                    valorTotal: formatCurrency(total),
-                };
-            })
-        );
-
-        const grandTotal = itemDetailsWithPrice.reduce((sum, item) => {
-            const value = parseFloat(item.valorTotal.replace('R$', '').replace(/\./g, '').replace(',', '.'));
-            return sum + value;
-        }, 0);
-
+        const selectedClient = clientList.value.find(c => c.id === orderHeader.customer_id) || { nome: 'Cliente Desconhecido' };
+        const itemDetailsWithPrice = await Promise.all(orderItems.value.map(async (item) => {
+            const price = 0;
+            const total = (item.quantity_meters || 0) * price;
+            return { base: item.fabric_type, estampa: item.stamp_ref, quantidade: `${item.quantity_meters}m`, valorUnit: formatCurrency(price), valorTotal: formatCurrency(total) };
+        }));
+        const grandTotal = itemDetailsWithPrice.reduce((sum, item) => sum + parseFloat(item.valorTotal.replace('R$', '').replace(/\./g, '').replace(',', '.')), 0);
         const doc = new jsPDF();
-        const pageHeight = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
-        const pageWidth = doc.internal.pageSize.width || doc.internal.pageSize.getWidth();
-
+        const { width: pageWidth, height: pageHeight } = doc.internal.pageSize;
         const logoUrl = 'https://cdn.shopify.com/s/files/1/0661/4574/6991/files/Sem_nome_1080_x_800_px_1080_x_500_px_1080_x_400_px_1000_x_380_px_da020cf2-2bb9-4dac-8dd3-4548cfd2e5ae.png?v=1756811713';
         const logoBase64 = await imageToBase64(logoUrl);
-
         const logoProps = doc.getImageProperties(logoBase64);
         const logoWidth = 50;
         const logoHeight = (logoProps.height * logoWidth) / logoProps.width;
         doc.addImage(logoBase64, 'PNG', 15, 12, logoWidth, logoHeight);
-
-        doc.setFontSize(18);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Pedido #${String(createdOrderNumber.value).padStart(4, '0')}`, pageWidth - 15, 25, { align: 'right' });
-
-
+        doc.setFontSize(18).setFont('helvetica', 'bold').text(`Pedido #${String(createdOrderNumber.value).padStart(4, '0')}`, pageWidth - 15, 25, { align: 'right' });
         autoTable(doc, {
             startY: 40,
             head: [['CLIENTE', 'VENDEDOR', 'DATA DE EMISSÃO']],
-            body: [[
-                selectedClient.nome,
-                userStore.profile?.full_name || 'N/A',
-                format(new Date(), 'dd/MM/yyyy', { locale: ptBR })
-            ]],
+            body: [[selectedClient.nome, userStore.profile?.full_name || 'N/A', format(new Date(), 'dd/MM/yyyy', { locale: ptBR })]],
             theme: 'striped',
         });
-
         autoTable(doc, {
             startY: (doc as any).lastAutoTable.finalY + 10,
             head: [['Base', 'Estampa', 'Quantidade', 'Valor Unit.', 'Valor Total']],
@@ -712,31 +757,27 @@ const generateAndUploadQuotePdf = async () => {
             theme: 'grid',
             foot: [['', '', '', 'Total do Pedido:', formatCurrency(grandTotal)]],
             footStyles: { fontStyle: 'bold', fontSize: 11, halign: 'right' },
-            didDrawPage: (data) => {
+            didDrawPage: () => {
                 const signatureY = pageHeight - 40;
-                doc.setLineWidth(0.5);
-                doc.setDrawColor(100, 100, 100);
-                doc.line(40, signatureY, pageWidth - 40, signatureY);
-                doc.setFontSize(10);
-                doc.setTextColor(100);
-                doc.text(`Assinatura do Cliente: ${selectedClient.nome}`, pageWidth / 2, signatureY + 5, { align: 'center' });
+                doc.setLineWidth(0.5).setDrawColor(100, 100, 100).line(40, signatureY, pageWidth - 40, signatureY);
+                doc.setFontSize(10).setTextColor(100).text(`Assinatura do Cliente: ${selectedClient.nome}`, pageWidth / 2, signatureY + 5, { align: 'center' });
             }
         });
-
         const pdfBlob = doc.output('blob');
         const pdfFileName = `Pedido_${String(createdOrderNumber.value).padStart(4, '0')}_${selectedClient.nome}.pdf`;
+        const url = URL.createObjectURL(pdfBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = pdfFileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
         const pdfPath = `sales_orders/${pdfFileName}`;
         const publicUrl = await uploadFile(pdfBlob, 'sales-orders', pdfPath);
-
-        const { error: updateError } = await supabase
-            .from('orders')
-            .update({ sales_order_pdf_url: publicUrl })
-            .eq('id', createdOrderId.value);
-
+        const { error: updateError } = await supabase.from('orders').update({ sales_order_pdf_url: publicUrl }).eq('id', createdOrderId.value);
         if (updateError) throw updateError;
-
-        showFeedback('Orçamento em PDF gerado e anexado com sucesso!', 'success');
-
+        showFeedback('Orçamento em PDF gerado, baixado e anexado com sucesso!', 'success');
     } catch (error: any) {
         console.error("Erro ao gerar PDF do orçamento:", error);
         showFeedback(`Erro ao gerar PDF: ${error.message}`, 'error');
@@ -745,23 +786,10 @@ const generateAndUploadQuotePdf = async () => {
     }
 }
 
-const resetForm = () => {
-  orderHeader.customer_id = null;
-  orderHeader.customer_name = '';
-  orderHeader.has_down_payment = false;
-  orderHeader.down_payment_proof_file = null;
-  orderItems.value = [];
-  prepareNewItem();
-  step.value = 1;
-  orderCreatedSuccess.value = false;
-  createdOrderId.value = null;
-  createdOrderNumber.value = null;
-  fetchNextOrderNumber();
-};
-
+// --- Lifecycle Hooks ---
 onMounted(() => {
-    fetchStock();
     fetchNextOrderNumber();
+    fetchGestaoClickData();
 });
 </script>
 
