@@ -83,6 +83,14 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    // ADICIONAR ESTA SEÇÃO DE PROXY
+    proxy: {
+      '/api-betel': {
+        target: 'https://api.beteltecnologia.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-betel/, '/api'),
+      },
+    },
   },
   css: {
     preprocessorOptions: {
