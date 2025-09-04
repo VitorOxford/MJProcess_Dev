@@ -19,7 +19,7 @@ type ClientResponse = { id: number; nome: string; }
 type Product = { id: string; nome: string; estoque: number; [key: string]: any; };
 type Service = { id: string; nome: string; imagem_url?: string; [key: string]: any; };
 type SaleStatus = { id: number; nome: string; };
-type SalePayload = { cliente_id: number; situacao_id: number; produtos: { produto_id: string; quantidade: number; valor_unitario: string; }[]; servicos: { servico_id: string; quantidade: number; valor_unitario: string; }[]; };
+type SalePayload = { cliente_id: number; situacao_id: number; produtos: { produto: { produto_id: string; quantidade: number; valor_venda: string; } }[]; servicos: { servico: { servico_id: string; quantidade: number; valor_venda: string; } }[]; };
 
 const gestaoApi = {
   async cadastrarCliente(clienteData: ClientPayload): Promise<ClientResponse> {
@@ -46,7 +46,7 @@ const gestaoApi = {
   async buscarClientes(termo: string): Promise<ClientResponse[]> {
     if (!termo || termo.length < 2) return [];
     try {
-       const response = await fetch(`${API_BASE_URL}/clientes?nome=${encodeURIComponent(termo)}`, { headers: getAuthHeaders() });
+      const response = await fetch(`${API_BASE_URL}/clientes?nome=${encodeURIComponent(termo)}`, { headers: getAuthHeaders() });
       if (!response.ok) return [];
       const responseData = await response.json();
       return responseData.data || [];
@@ -75,7 +75,7 @@ const gestaoApi = {
 
   async buscarCidades(estadoId: number): Promise<{id: string, nome: string}[]> {
     try {
-       const response = await fetch(`${API_BASE_URL}/cidades?estado_id=${estadoId}`, { headers: getAuthHeaders() });
+      const response = await fetch(`${API_BASE_URL}/cidades?estado_id=${estadoId}`, { headers: getAuthHeaders() });
       if (!response.ok) return [];
       const responseData = await response.json();
       return responseData.data || [];
@@ -83,9 +83,9 @@ const gestaoApi = {
   },
 
   async buscarEstados(): Promise<{id: string, sigla: string}[]> {
-     try {
-       const response = await fetch(`${API_BASE_URL}/estados`, { headers: getAuthHeaders() });
-       if (!response.ok) { throw new Error(`Falha na requisição: ${response.status} ${response.statusText}`); }
+    try {
+      const response = await fetch(`${API_BASE_URL}/estados`, { headers: getAuthHeaders() });
+      if (!response.ok) { throw new Error(`Falha na requisição: ${response.status} ${response.statusText}`); }
       const responseData = await response.json();
       return responseData.data || [];
     } catch (error) { console.error('Erro em buscarEstados:', error); throw error; }
@@ -100,7 +100,6 @@ const gestaoApi = {
     } catch (error) { console.error('Erro em getSituacoesVenda:', error); throw error; }
   },
 
-  // --- NOVAS FUNÇÕES ---
   async buscarProdutoPorId(id: string): Promise<any> {
     try {
         const response = await fetch(`${API_BASE_URL}/produtos/${id}`, { headers: getAuthHeaders() });
@@ -151,7 +150,29 @@ const gestaoApi = {
         console.error('Erro em cadastrarVenda:', error);
         throw error;
     }
-  }
+  }, // <--- A CORREÇÃO ESTÁ AQUI. VÍRGULA ADICIONADA.
+
+  async cadastrarServico(nomeServico: string): Promise<{ id: string; nome: string }> {
+    try {
+      const payload = {
+        nome: nomeServico,
+        valor_venda: "0.00", // Valor padrão, já que não é o foco
+      };
+      const response = await fetch(`${API_BASE_URL}/servicos`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload)
+      });
+      const responseData = await response.json();
+      if (!response.ok || responseData.status !== 'success') {
+        throw new Error(responseData?.msg || responseData?.erros?.[0] || `Erro ao cadastrar serviço`);
+      }
+      return responseData.data;
+    } catch (error) {
+      console.error('Erro em cadastrarServico:', error);
+      throw error;
+    }
+  },
 };
 
 export { gestaoApi };

@@ -216,6 +216,7 @@ const allNavItems = [
   { icon: 'mdi-factory', title: 'Fila de Produção', value: 'production-kanban', to: { name: 'ProductionKanban' }, roles: ['producao', 'admin'] },
   { icon: 'mdi-cog-sync-outline', title: 'Em Produção', value: 'in-production', to: { name: 'InProduction' }, roles: ['producao', 'admin'] },
   { icon: 'mdi-palette-swatch-outline', title: 'Design', value: 'design-kanban', to: { name: 'DesignKanban' }, roles: ['designer', 'admin'] },
+  { icon: 'mdi-image-multiple-outline', title: 'Catálogo de Estampas', value: 'stamp-catalog', to: { name: 'StampCatalog' }, roles: ['designer', 'admin'] },
   { icon: 'mdi-truck-delivery-outline', title: 'Agenda de Entrega', value: 'delivery', to: { name: 'Delivery' }, roles: ['vendedor', 'designer', 'producao', 'admin'] },
   { icon: 'mdi-currency-usd', title: 'Tabela de Preços', value: 'price-list', to: { name: 'PriceList' }, roles: ['vendedor', 'admin'] },
   { icon: 'mdi-warehouse', title: 'Estoque', value: 'stock', to: { name: 'Stock' }, roles: ['vendedor', 'designer', 'producao', 'admin'] },

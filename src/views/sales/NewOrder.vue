@@ -101,8 +101,8 @@
                       >
                         <template #prepend>
                           <v-img
-                            v-if="item.stamp_image_file_preview"
-                            :src="item.stamp_image_file_preview"
+                            v-if="item.stamp_image_url"
+                            :src="item.stamp_image_url"
                             width="40"
                             height="40"
                             cover
@@ -128,7 +128,7 @@
                             {{ item.design_tag }}
                           </v-chip>
                         </v-list-item-title>
-                        <v-list-item-subtitle>{{ item.fabric_type || 'Sem tecido' }} - {{ item.quantity_meters || 0 }}m - {{ formatCurrency(item.valor_unitario) }}</v-list-item-subtitle>
+                        <v-list-item-subtitle>{{ item.fabric_type || 'Sem tecido' }} - {{ item.quantity_meters || 0 }}m</v-list-item-subtitle>
                         <template v-slot:append>
                           <v-btn icon="mdi-delete-outline" variant="text" size="small" color="error" @click.stop="removeItem(index)"></v-btn>
                         </template>
@@ -179,11 +179,25 @@
                               :loading="loadingGestaoClickServices"
                             >
                                <template v-slot:item="{ props, item }">
-                                <v-list-item v-bind="props" :subtitle="`Preço: ${formatCurrency(parseFloat(item.raw.valor_venda))}`"></v-list-item>
+                                <v-list-item v-bind="props" :prepend-avatar="item.raw.imagem_url" :subtitle="`Preço: ${formatCurrency(parseFloat(item.raw.valor_venda))}`"></v-list-item>
                               </template>
                             </v-autocomplete>
                           </v-col>
-                          <v-col cols="12" sm="6">
+
+                          <v-col cols="12" class="text-center">
+                            <v-img
+                              v-if="editedItem.stamp_image_url"
+                              :src="editedItem.stamp_image_url"
+                              max-height="150"
+                              contain
+                              class="rounded border"
+                            ></v-img>
+                             <div v-else class="d-flex align-center justify-center text-grey-lighten-1" style="height: 150px; border: 2px dashed #444; border-radius: 4px;">
+                              Selecione uma estampa para visualizar
+                            </div>
+                          </v-col>
+
+                          <v-col cols="12">
                             <v-text-field
                               v-model.number="editedItem.quantity_meters"
                               label="Metragem (metros)"
@@ -209,29 +223,7 @@
                               ></v-progress-linear>
                             </div>
                           </v-col>
-                           <v-col cols="12" sm="6">
-                            <v-text-field
-                              v-model.number="editedItem.valor_unitario"
-                              label="Valor Unitário (R$)"
-                              type="number"
-                              variant="outlined"
-                              density="compact"
-                              prefix="R$"
-                              :rules="[rules.required, rules.positiveOrZero]"
-                            ></v-text-field>
-                          </v-col>
-                          <v-col cols="12">
-                            <v-file-input
-                              v-model="editedItem.stamp_image_file"
-                              @change="handleFileChange"
-                              label="Anexar Estampa"
-                              variant="outlined"
-                              density="compact"
-                              prepend-icon=""
-                              prepend-inner-icon="mdi-image-plus-outline"
-                              accept="image/*,.pdf,.cdr,.ai"
-                            ></v-file-input>
-                          </v-col>
+
                           <v-col cols="12">
                             <v-textarea
                               v-model="editedItem.notes"
@@ -350,15 +342,20 @@ type OrderItem = {
   stamp_ref: string;
   quantity_meters: number | null;
   valor_unitario: number | null;
-  stamp_image_file: File | null;
-  stamp_image_file_preview: string | null;
+  stamp_image_url: string | null;
   notes: string;
   design_tag: 'Desenvolvimento' | 'Alteração' | 'Finalização' | 'Aprovado';
+};
+type StampLibraryItem = {
+    id: number;
+    gestao_click_service_id: string;
+    name: string;
+    image_url: string;
 };
 type Feedback = { message: string; type: 'success' | 'error'; }
 type Client = { id: number; nome: string; }
 type GestaoClickProduct = { id: string; nome: string; estoque: number | string; valor_venda: string; };
-type GestaoClickService = { id: string; nome: string; valor_venda: string; };
+type GestaoClickService = { id: string; nome: string; valor_venda: string; imagem_url?: string; };
 type SaleStatus = { id: number; nome: string; };
 
 // --- Component State ---
@@ -385,12 +382,13 @@ const clientSearch = ref('');
 const isSearchingClients = ref(false);
 let searchTimeout: NodeJS.Timeout;
 
-// --- Gestao Click Data State ---
+// --- Gestao Click & Stamp Library Data State ---
 const gestaoClickProducts = ref<GestaoClickProduct[]>([]);
 const loadingGestaoClickProducts = ref(true);
 const gestaoClickServices = ref<GestaoClickService[]>([]);
 const loadingGestaoClickServices = ref(true);
 const saleStatuses = ref<SaleStatus[]>([]);
+const stampLibrary = ref<StampLibraryItem[]>([]);
 
 const tagColorMap = {
   'Desenvolvimento': '#40c4ff',
@@ -407,8 +405,7 @@ const createNewItem = (): OrderItem => ({
   stamp_ref: '',
   quantity_meters: null,
   valor_unitario: null,
-  stamp_image_file: null,
-  stamp_image_file_preview: null,
+  stamp_image_url: null,
   notes: '',
   design_tag: 'Desenvolvimento',
 });
@@ -431,6 +428,7 @@ const rules = {
 watch(() => editedItem.value.stamp_ref_id, (serviceId) => {
     if (!serviceId) {
         editedItem.value.stamp_ref = '';
+        editedItem.value.stamp_image_url = null;
         if (!editedItem.value.fabric_type) editedItem.value.valor_unitario = null;
         return;
     }
@@ -440,6 +438,12 @@ watch(() => editedItem.value.stamp_ref_id, (serviceId) => {
         if (!editedItem.value.fabric_type) {
             editedItem.value.valor_unitario = parseFloat(service.valor_venda) || 0;
         }
+    }
+    const stamp = stampLibrary.value.find(s => s.gestao_click_service_id === serviceId);
+    if (stamp) {
+        editedItem.value.stamp_image_url = stamp.image_url;
+    } else {
+        editedItem.value.stamp_image_url = null;
     }
 });
 
@@ -480,8 +484,8 @@ const isItemFormValid = computed(() => {
   const item = editedItem.value;
   const hasText = !!item.fabric_type && !!item.stamp_ref_id;
   const hasNumbers = !!item.quantity_meters && item.quantity_meters > 0 && item.valor_unitario !== null && item.valor_unitario >= 0;
-  const hasFile = !!item.stamp_image_file;
-  return hasText && hasNumbers && hasFile;
+  const hasStamp = !!item.stamp_image_url;
+  return hasText && hasNumbers && hasStamp;
 });
 
 // --- API Calls and Data Fetching ---
@@ -495,20 +499,34 @@ watch(clientSearch, (newValue) => {
     }, 500);
 });
 
-const fetchGestaoClickData = async () => {
+const fetchInitialData = async () => {
     loadingGestaoClickProducts.value = true;
     loadingGestaoClickServices.value = true;
     try {
-        const [products, services, statuses] = await Promise.all([
+        const [products, services, statuses, stamps] = await Promise.all([
             gestaoApi.buscarProdutos(),
             gestaoApi.buscarServicos(),
             gestaoApi.getSituacoesVenda(),
+            supabase.from('stamp_library').select('*')
         ]);
+
+        if (stamps.error) throw stamps.error;
+        stampLibrary.value = stamps.data || [];
+
+        gestaoClickServices.value = services.map(service => {
+            const matchingStamp = stampLibrary.value.find(s => s.gestao_click_service_id === service.id);
+            return {
+                ...service,
+                imagem_url: matchingStamp ? matchingStamp.image_url : undefined
+            };
+        });
+
         gestaoClickProducts.value = products;
-        gestaoClickServices.value = services;
         saleStatuses.value = statuses;
+
     } catch (error) {
-        showFeedback('Não foi possível carregar dados do Gestão Click (Produtos/Serviços).', 'error');
+        showFeedback('Não foi possível carregar dados do Gestão Click ou do Catálogo de Estampas.', 'error');
+        console.error("Erro na busca de dados iniciais:", error);
     } finally {
         loadingGestaoClickProducts.value = false;
         loadingGestaoClickServices.value = false;
@@ -543,21 +561,6 @@ const uploadFile = async (file: File | Blob, bucket: string, path: string): Prom
 };
 
 // --- Form and Stepper Logic ---
-
-const handleFileChange = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  if (target.files && target.files[0]) {
-    const file = target.files[0];
-    editedItem.value.stamp_image_file = file;
-    if (editedItem.value.stamp_image_file_preview) {
-      URL.revokeObjectURL(editedItem.value.stamp_image_file_preview);
-    }
-    editedItem.value.stamp_image_file_preview = URL.createObjectURL(file);
-  } else {
-    editedItem.value.stamp_image_file = null;
-    editedItem.value.stamp_image_file_preview = null;
-  }
-};
 
 const handleProofFileChange = (event: Event) => {
   const target = event.target as HTMLInputElement;
@@ -601,7 +604,7 @@ const saveOrUpdateItem = async () => {
   if (itemForm.value) {
     const { valid } = await itemForm.value.validate();
     if (!valid || !isItemFormValid.value) {
-      showFeedback('Por favor, preencha todos os campos obrigatórios, incluindo o anexo.', 'error');
+      showFeedback('Por favor, preencha todos os campos obrigatórios e selecione uma estampa válida.', 'error');
       return;
     }
   }
@@ -658,7 +661,7 @@ const syncOrderWithGestaoClick = async () => {
             const currentStock = parseFloat(product.estoque as string);
             const quantityUsed = item.quantity_meters || 0;
             const newStock = currentStock - quantityUsed;
-            product.estoque = newStock; // Atualiza o estado local para consistência
+            product.estoque = newStock;
             await gestaoApi.atualizarEstoqueProduto(product.id, newStock);
         }
     }
@@ -683,21 +686,21 @@ const submitLaunch = async () => {
       const filePath = `proofs/${Date.now()}-${baseName}`;
       proofPublicUrl = await uploadFile(file, 'proofs', filePath);
     }
-    const itemsPayload = await Promise.all(orderItems.value.map(async (item, index) => {
-        const file = item.stamp_image_file;
-        if (!file) throw new Error(`O item "${item.stamp_ref}" está sem uma imagem anexada.`);
-        const baseName = sanitizeName(file.name);
-        const filePath = `arts/${Date.now()}-item${index}-${baseName}`;
-        const publicUrl = await uploadFile(file, 'arts', filePath);
+
+    const itemsPayload = orderItems.value.map(item => {
+        if (!item.stamp_image_url) {
+            throw new Error(`O item "${item.stamp_ref}" está sem uma imagem associada.`);
+        }
         return {
             fabric_type: item.fabric_type,
             stamp_ref: item.stamp_ref,
             quantity_meters: item.quantity_meters,
-            stamp_image_url: publicUrl,
+            stamp_image_url: item.stamp_image_url,
             design_tag: item.design_tag,
             notes: item.notes,
         };
-    }));
+    });
+
     const { data: newOrderNumber, error: rpcError } = await supabase.rpc('create_launch_order', {
       p_customer_name: selectedClient.nome,
       p_created_by: userStore.profile?.id,
@@ -706,6 +709,7 @@ const submitLaunch = async () => {
       p_down_payment_proof_url: proofPublicUrl,
       p_order_items: itemsPayload
     });
+
     if (rpcError) throw rpcError;
     const { data: orderData } = await supabase.from('orders').select('id').eq('order_number', newOrderNumber).single();
     if (orderData) createdOrderId.value = orderData.id;
@@ -739,7 +743,7 @@ const resetForm = () => {
   createdOrderId.value = null;
   createdOrderNumber.value = null;
   fetchNextOrderNumber();
-  fetchGestaoClickData();
+  fetchInitialData();
 };
 
 const showFeedback = (message: string, type: 'success' | 'error') => {
@@ -839,7 +843,7 @@ const generateAndUploadQuotePdf = async () => {
 // --- Lifecycle Hooks ---
 onMounted(() => {
     fetchNextOrderNumber();
-    fetchGestaoClickData();
+    fetchInitialData();
 });
 </script>
 

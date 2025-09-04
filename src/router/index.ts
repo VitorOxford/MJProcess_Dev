@@ -72,6 +72,12 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/views/design/DesignKanban.vue'),
         meta: { roles: ['designer', 'admin'] }
       },
+    {
+        path: 'catalogo-estampas',
+        name: 'StampCatalog',
+        component: () => import('@/views/design/StampCatalog.vue'),
+        meta: { roles: ['designer', 'admin'] } // Apenas designer e admin podem acessar
+      },
       {
         path: 'producao',
         name: 'ProductionKanban',
