@@ -128,7 +128,7 @@
                             {{ item.design_tag }}
                           </v-chip>
                         </v-list-item-title>
-                        <v-list-item-subtitle>{{ item.fabric_type || 'Sem tecido' }} - {{ item.quantity_meters || 0 }}m</v-list-item-subtitle>
+                        <v-list-item-subtitle>{{ item.fabric_type || 'Sem tecido' }} - {{ item.quantity_meters || 0 }}m - {{ formatCurrency(item.valor_unitario) }}</v-list-item-subtitle>
                         <template v-slot:append>
                           <v-btn icon="mdi-delete-outline" variant="text" size="small" color="error" @click.stop="removeItem(index)"></v-btn>
                         </template>
@@ -149,7 +149,7 @@
                     <v-card-text>
                       <v-form ref="itemForm">
                         <v-row>
-                          <v-col cols="12" sm="6">
+                           <v-col cols="12" sm="6">
                             <v-autocomplete
                               v-model="editedItem.fabric_type"
                               :items="gestaoClickProducts"
@@ -162,7 +162,7 @@
                               :rules="[rules.required]"
                             >
                               <template v-slot:item="{ props, item }">
-                                <v-list-item v-bind="props" :subtitle="`Estoque: ${item.raw.estoque}`"></v-list-item>
+                                <v-list-item v-bind="props" :subtitle="`Estoque: ${item.raw.estoque} | Preço: ${formatCurrency(parseFloat(item.raw.valor_venda))}`"></v-list-item>
                               </template>
                             </v-autocomplete>
                           </v-col>
@@ -177,7 +177,11 @@
                               density="compact"
                               :rules="[rules.required]"
                               :loading="loadingGestaoClickServices"
-                            ></v-autocomplete>
+                            >
+                               <template v-slot:item="{ props, item }">
+                                <v-list-item v-bind="props" :subtitle="`Preço: ${formatCurrency(parseFloat(item.raw.valor_venda))}`"></v-list-item>
+                              </template>
+                            </v-autocomplete>
                           </v-col>
                           <v-col cols="12" sm="6">
                             <v-text-field
@@ -205,7 +209,18 @@
                               ></v-progress-linear>
                             </div>
                           </v-col>
-                          <v-col cols="12" sm="6">
+                           <v-col cols="12" sm="6">
+                            <v-text-field
+                              v-model.number="editedItem.valor_unitario"
+                              label="Valor Unitário (R$)"
+                              type="number"
+                              variant="outlined"
+                              density="compact"
+                              prefix="R$"
+                              :rules="[rules.required, rules.positiveOrZero]"
+                            ></v-text-field>
+                          </v-col>
+                          <v-col cols="12">
                             <v-file-input
                               v-model="editedItem.stamp_image_file"
                               @change="handleFileChange"
@@ -334,6 +349,7 @@ type OrderItem = {
   stamp_ref_id: string | null;
   stamp_ref: string;
   quantity_meters: number | null;
+  valor_unitario: number | null;
   stamp_image_file: File | null;
   stamp_image_file_preview: string | null;
   notes: string;
@@ -341,8 +357,8 @@ type OrderItem = {
 };
 type Feedback = { message: string; type: 'success' | 'error'; }
 type Client = { id: number; nome: string; }
-type GestaoClickProduct = { id: string; nome: string; estoque: number | string; };
-type GestaoClickService = { id: string; nome: string; };
+type GestaoClickProduct = { id: string; nome: string; estoque: number | string; valor_venda: string; };
+type GestaoClickService = { id: string; nome: string; valor_venda: string; };
 type SaleStatus = { id: number; nome: string; };
 
 // --- Component State ---
@@ -390,6 +406,7 @@ const createNewItem = (): OrderItem => ({
   stamp_ref_id: null,
   stamp_ref: '',
   quantity_meters: null,
+  valor_unitario: null,
   stamp_image_file: null,
   stamp_image_file_preview: null,
   notes: '',
@@ -408,16 +425,33 @@ const feedback = reactive<Feedback>({ message: '', type: 'success' });
 const rules = {
   required: (v: any) => !!v || 'Campo obrigatório.',
   positive: (v: number | null) => (v != null && v > 0) || 'O valor deve ser maior que zero.',
+  positiveOrZero: (v: number | null) => (v != null && v >= 0) || 'O valor não pode ser negativo.'
 };
 
 watch(() => editedItem.value.stamp_ref_id, (serviceId) => {
     if (!serviceId) {
         editedItem.value.stamp_ref = '';
+        if (!editedItem.value.fabric_type) editedItem.value.valor_unitario = null;
         return;
     }
     const service = gestaoClickServices.value.find(s => s.id === serviceId);
     if (service) {
         editedItem.value.stamp_ref = service.nome;
+        if (!editedItem.value.fabric_type) {
+            editedItem.value.valor_unitario = parseFloat(service.valor_venda) || 0;
+        }
+    }
+});
+
+watch(() => editedItem.value.fabric_type, (productName) => {
+    if (!productName) {
+        const service = gestaoClickServices.value.find(s => s.id === editedItem.value.stamp_ref_id);
+        editedItem.value.valor_unitario = service ? (parseFloat(service.valor_venda) || 0) : null;
+        return;
+    }
+    const product = gestaoClickProducts.value.find(p => p.nome === productName);
+    if (product) {
+        editedItem.value.valor_unitario = parseFloat(product.valor_venda) || 0;
     }
 });
 
@@ -445,7 +479,7 @@ const isStep1Valid = computed(() => {
 const isItemFormValid = computed(() => {
   const item = editedItem.value;
   const hasText = !!item.fabric_type && !!item.stamp_ref_id;
-  const hasNumbers = !!item.quantity_meters && item.quantity_meters > 0;
+  const hasNumbers = !!item.quantity_meters && item.quantity_meters > 0 && item.valor_unitario !== null && item.valor_unitario >= 0;
   const hasFile = !!item.stamp_image_file;
   return hasText && hasNumbers && hasFile;
 });
@@ -515,11 +549,9 @@ const handleFileChange = (event: Event) => {
   if (target.files && target.files[0]) {
     const file = target.files[0];
     editedItem.value.stamp_image_file = file;
-    // Limpa a URL antiga para evitar memory leak
     if (editedItem.value.stamp_image_file_preview) {
       URL.revokeObjectURL(editedItem.value.stamp_image_file_preview);
     }
-    // Cria uma nova URL para o preview
     editedItem.value.stamp_image_file_preview = URL.createObjectURL(file);
   } else {
     editedItem.value.stamp_image_file = null;
@@ -568,7 +600,7 @@ const removeItem = (index: number) => {
 const saveOrUpdateItem = async () => {
   if (itemForm.value) {
     const { valid } = await itemForm.value.validate();
-    if (!valid || !isItemFormValid.value) { // Checagem dupla para garantir
+    if (!valid || !isItemFormValid.value) {
       showFeedback('Por favor, preencha todos os campos obrigatórios, incluindo o anexo.', 'error');
       return;
     }
@@ -594,6 +626,7 @@ const syncOrderWithGestaoClick = async () => {
     if (!situacao) {
         throw new Error("Não foi possível encontrar uma situação de venda válida no Gestão Click.");
     }
+
     const salePayload = {
         cliente_id: orderHeader.customer_id,
         situacao_id: situacao.id,
@@ -601,25 +634,31 @@ const syncOrderWithGestaoClick = async () => {
             const product = gestaoClickProducts.value.find(p => p.nome === item.fabric_type);
             if (!product) throw new Error(`Produto ${item.fabric_type} não encontrado no Gestão Click.`);
             return {
-                produto_id: product.id,
-                quantidade: item.quantity_meters || 0,
-                valor_unitario: "0.00"
+                produto: {
+                    produto_id: product.id,
+                    quantidade: item.quantity_meters || 0,
+                    valor_venda: (item.valor_unitario || 0).toFixed(2)
+                }
             };
         }),
         servicos: orderItems.value.map(item => ({
-            servico_id: item.stamp_ref_id!,
-            quantidade: 1,
-            valor_unitario: "0.00"
+            servico: {
+                servico_id: item.stamp_ref_id!,
+                quantidade: 1,
+                valor_venda: (item.valor_unitario || 0).toFixed(2)
+            }
         }))
     };
+
     await gestaoApi.cadastrarVenda(salePayload);
+
     for (const item of orderItems.value) {
         const product = gestaoClickProducts.value.find(p => p.nome === item.fabric_type);
         if (product) {
             const currentStock = parseFloat(product.estoque as string);
             const quantityUsed = item.quantity_meters || 0;
             const newStock = currentStock - quantityUsed;
-            product.estoque = newStock;
+            product.estoque = newStock; // Atualiza o estado local para consistência
             await gestaoApi.atualizarEstoqueProduto(product.id, newStock);
         }
     }
@@ -708,7 +747,10 @@ const showFeedback = (message: string, type: 'success' | 'error') => {
   feedback.type = type;
 };
 
-const formatCurrency = (value: number | undefined) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+const formatCurrency = (value: number | undefined | null) => {
+    if (value === null || value === undefined) return 'R$ 0,00';
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+}
 
 const imageToBase64 = (url: string): Promise<string> => new Promise((resolve, reject) => {
     const img = new Image();
@@ -729,11 +771,19 @@ const generateAndUploadQuotePdf = async () => {
     isGeneratingPdf.value = true;
     try {
         const selectedClient = clientList.value.find(c => c.id === orderHeader.customer_id) || { nome: 'Cliente Desconhecido' };
-        const itemDetailsWithPrice = await Promise.all(orderItems.value.map(async (item) => {
-            const price = 0;
+
+        const itemDetailsWithPrice = orderItems.value.map(item => {
+            const price = item.valor_unitario || 0;
             const total = (item.quantity_meters || 0) * price;
-            return { base: item.fabric_type, estampa: item.stamp_ref, quantidade: `${item.quantity_meters}m`, valorUnit: formatCurrency(price), valorTotal: formatCurrency(total) };
-        }));
+            return {
+                base: item.fabric_type,
+                estampa: item.stamp_ref,
+                quantidade: `${item.quantity_meters}m`,
+                valorUnit: formatCurrency(price),
+                valorTotal: formatCurrency(total)
+            };
+        });
+
         const grandTotal = itemDetailsWithPrice.reduce((sum, item) => sum + parseFloat(item.valorTotal.replace('R$', '').replace(/\./g, '').replace(',', '.')), 0);
         const doc = new jsPDF();
         const { width: pageWidth, height: pageHeight } = doc.internal.pageSize;
