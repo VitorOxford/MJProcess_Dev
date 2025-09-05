@@ -26,28 +26,43 @@
 import { ref, watch, reactive, computed } from 'vue';
 import { supabase } from '@/api/supabase';
 
-const props = defineProps({ show: Boolean, folderData: Object });
+const props = defineProps({ show: Boolean, folderData: Object as () => { id: number; name: string } | null });
 const emit = defineEmits(['close', 'save']);
 
 const isSaving = ref(false);
-const form = reactive({ id: null, name: '' });
+const form = reactive({ id: null as number | null, name: '' });
 const isEditing = computed(() => !!form.id);
 
-watch(() => props.folderData, (newVal) => {
-    if (newVal) Object.assign(form, newVal);
-    else { form.id = null; form.name = ''; }
+watch(() => props.show, (newVal) => {
+    if (newVal) {
+        if (props.folderData) {
+            form.id = props.folderData.id;
+            form.name = props.folderData.name;
+        } else {
+            form.id = null;
+            form.name = '';
+        }
+    }
 });
 
 const saveFolder = async () => {
+    if (!form.name.trim()) return;
     isSaving.value = true;
     const payload = { name: form.name };
-    if (form.id) {
-        await supabase.from('stamp_folders').update(payload).eq('id', form.id);
-    } else {
-        await supabase.from('stamp_folders').insert(payload);
+    try {
+        if (form.id) {
+            const { error } = await supabase.from('stamp_folders').update(payload).eq('id', form.id);
+            if (error) throw error;
+        } else {
+            const { error } = await supabase.from('stamp_folders').insert(payload);
+            if (error) throw error;
+        }
+        emit('save');
+    } catch (err) {
+        console.error("Erro ao salvar pasta:", err);
+    } finally {
+        isSaving.value = false;
     }
-    emit('save');
-    isSaving.value = false;
 };
 </script>
 

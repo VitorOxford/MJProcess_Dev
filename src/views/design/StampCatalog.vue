@@ -17,16 +17,13 @@
         class="mt-6 mx-auto search-bar"
       />
       <div class="d-flex justify-center mt-4">
-        <v-chip-group
-          v-model="filterStatus"
-          mandatory
-        >
+        <v-chip-group v-model="filterStatus" mandatory>
           <v-chip filter value="all" color="grey" size="small">Todos</v-chip>
           <v-chip filter value="approved" color="success" size="small">Aprovados</v-chip>
           <v-chip filter value="pending" color="orange" size="small">Pendentes</v-chip>
         </v-chip-group>
       </div>
-       <div class="actions-bar">
+      <div class="actions-bar">
         <v-btn @click="openStampModal(null)" color="primary" variant="flat">
           <v-icon start>mdi-plus-box-outline</v-icon>
           Nova Estampa
@@ -56,7 +53,14 @@
       <div v-else-if="!activeFolder">
         <v-row v-if="filteredFolders.length > 0">
           <v-col v-for="folder in filteredFolders" :key="folder.id" cols="12" sm="6" md="4" lg="3">
-            <StampFolderCard :folder="folder" :stamp-count="getStampsInFolder(folder.id).length" @click="activeFolder = folder" @delete="deleteFolder" @drop-stamp="handleStampDrop"/>
+            <StampFolderCard
+              :folder="folder"
+              :stamp-count="getStampsInFolder(folder.id).length"
+              @click="activeFolder = folder"
+              @delete="deleteFolder"
+              @edit="openFolderModal"
+              @drop-stamp="handleStampDrop"
+            />
           </v-col>
         </v-row>
         <div v-if="unassignedStamps.length > 0" class="mt-8">
@@ -64,7 +68,7 @@
           <h2 class="text-h5 font-weight-bold mb-4">Estampas sem Pasta</h2>
           <v-row>
             <v-col v-for="item in unassignedStamps" :key="item.id" cols="6" sm="4" md="3" lg="2">
-              <StampCard :stamp="item" @delete="deleteStamp" @toggle-approval="toggleApprovalStatus" />
+              <StampCard :stamp="item" @delete="deleteStamp" @toggle-approval="toggleApprovalStatus" @remove-from-folder="removeStampFromFolder" />
             </v-col>
           </v-row>
         </div>
@@ -73,7 +77,7 @@
       <div v-else>
         <v-row>
           <v-col v-for="item in filteredStampsInFolder" :key="item.id" cols="6" sm="4" md="3" lg="2">
-            <StampCard :stamp="item" @delete="deleteStamp" @toggle-approval="toggleApprovalStatus" />
+            <StampCard :stamp="item" @delete="deleteStamp" @toggle-approval="toggleApprovalStatus" @remove-from-folder="removeStampFromFolder" />
           </v-col>
         </v-row>
       </div>
@@ -90,7 +94,6 @@
 </template>
 
 <script setup lang="ts">
-// O SCRIPT SETUP PERMANECE O MESMO DA VERSÃO ANTERIOR, POIS A LÓGICA ESTÁ CORRETA
 import { ref, onMounted, computed } from 'vue';
 import { supabase } from '@/api/supabase';
 import StampFolderCard from '@/components/admin/StampFolderCard.vue';
@@ -146,6 +149,18 @@ const handleStampDrop = async ({ folderId, stampId }: { folderId: number, stampI
     if (error) await fetchData();
 };
 
+const removeStampFromFolder = async (stamp: Stamp) => {
+  const originalFolderId = stamp.folder_id;
+  stamp.folder_id = null; // Otimização da UI
+  try {
+    const { error } = await supabase.from('stamp_library').update({ folder_id: null }).eq('id', stamp.id);
+    if (error) throw error;
+  } catch (err) {
+    console.error("Erro ao remover estampa da pasta:", err);
+    stamp.folder_id = originalFolderId; // Reverte em caso de erro
+  }
+};
+
 const toggleApprovalStatus = async (stamp: Stamp) => {
   const newStatus = !stamp.is_approved_for_sale;
   const originalStatus = stamp.is_approved_for_sale;
@@ -176,7 +191,7 @@ const fetchData = async () => {
 };
 
 const openFolderModal = (folder: Folder | null) => {
-  selectedFolder.value = folder;
+  selectedFolder.value = folder ? { ...folder } : null;
   showFolderModal.value = true;
 };
 const handleFolderSave = async () => {
@@ -190,6 +205,12 @@ const openStampModal = (stamp: Stamp | null) => {
 const handleStampSave = async () => {
   await fetchData();
   showStampModal.value = false;
+}
+const deleteFolder = async (folderId: number) => {
+  if (confirm('Tem certeza? Todas as estampas nesta pasta ficarão sem pasta.')) {
+    await supabase.from('stamp_folders').delete().eq('id', folderId);
+    await fetchData();
+  }
 }
 const deleteStamp = async (stampId: number) => {
   if (confirm('Tem certeza que deseja apagar esta estampa?')) {
@@ -208,10 +229,8 @@ onMounted(fetchData);
 <style scoped lang="scss">
 .stamp-catalog-container { display: flex; flex-direction: column; }
 .catalog-header { text-align: center; margin-bottom: 2rem; }
+.search-bar { max-width: 600px; }
 .actions-bar { display: flex; justify-content: center; gap: 1rem; margin-top: 2rem; }
-.search-bar {
-  max-width: 600px;
-}
 .folder-header {
   display: flex;
   align-items: center;
