@@ -20,7 +20,7 @@
 
     <div v-if="loading" class="text-center py-16">
         <v-progress-circular indeterminate color="primary" size="64"></v-progress-circular>
-        <p class="mt-4 text-grey-lighten-1">Carregando estoque...</p>
+        <p class="mt-4 text-grey-lighten-1">Sincronizando com o Gestão Click...</p>
     </div>
 
     <v-alert v-else-if="filteredStockItems.length === 0" type="info" variant="tonal" class="mx-auto" max-width="500">
@@ -40,7 +40,7 @@
           <v-card-text>
             <div class="d-flex align-center">
               <div>
-                <h3 class="text-h6 font-weight-bold">{{ item.fabric_type }}</h3>
+                <h3 class="text-h6 font-weight-bold">{{ item.nome }}</h3>
                 <p class="text-caption text-medium-emphasis mt-1">Disponível em estoque</p>
               </div>
               <v-spacer></v-spacer>
@@ -49,8 +49,8 @@
                   <v-icon size="small" class="mr-1">mdi-tape-measure</v-icon>
                   <span class="text-caption font-weight-bold">{{ item.meters_per_roll }}m / Rolo</span>
                 </div>
-                <p class="text-h4 font-weight-bold" :class="getMeterColor(item.available_meters)">
-                  {{ item.available_meters.toLocaleString('pt-BR') }}m
+                <p class="text-h4 font-weight-bold" :class="getMeterColor(item.estoque)">
+                  {{ item.estoque.toLocaleString('pt-BR') }}{{ item.unit_of_measure === 'kg' ? 'kg' : 'm' }}
                 </p>
               </div>
             </div>
@@ -64,25 +64,53 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { supabase } from '@/api/supabase';
+import { gestaoApi } from '@/api/gestaoClick';
 
-type StockItem = {
+// Tipagem para os dados que vêm do Gestão Click
+type GestaoClickStockItem = {
   id: string;
-  fabric_type: string;
-  available_meters: number;
-  meters_per_roll: number | null; // COLUNA NOVA
+  nome: string;
+  estoque: number;
+  [key: string]: any;
 };
+
+// Tipagem para os dados que vêm do Supabase (o nosso "cérebro")
+type SupabaseStockInfo = {
+  fabric_type: string;
+  unit_of_measure: 'metro' | 'kg';
+  meters_per_roll: number | null;
+};
+
+// Tipagem para o item combinado final
+type CombinedStockItem = GestaoClickStockItem & SupabaseStockInfo;
 
 const loading = ref(true);
 const search = ref('');
-const stockItems = ref<StockItem[]>([]);
+const gestaoClickItems = ref<GestaoClickStockItem[]>([]);
+const supabaseStockItems = ref<SupabaseStockInfo[]>([]);
+
+// Propriedade computada que faz a mágica de juntar as duas fontes de dados
+const combinedStockItems = computed((): CombinedStockItem[] => {
+    return gestaoClickItems.value.map(gcItem => {
+        // Para cada item do Gestão Click, ele procura a configuração correspondente no Supabase
+        const sbItem = supabaseStockItems.value.find(sb => sb.fabric_type === gcItem.nome);
+        return {
+            ...gcItem,
+            // Pega a unidade do Supabase. Se não achar, assume 'metro' como padrão.
+            unit_of_measure: sbItem?.unit_of_measure || 'metro',
+            meters_per_roll: sbItem?.meters_per_roll || null,
+            fabric_type: gcItem.nome
+        };
+    });
+});
 
 const filteredStockItems = computed(() => {
   if (!search.value) {
-    return stockItems.value.sort((a, b) => a.fabric_type.localeCompare(b.fabric_type));
+    return combinedStockItems.value.sort((a, b) => a.nome.localeCompare(b.nome));
   }
-  return stockItems.value.filter(item =>
-    item.fabric_type.toLowerCase().includes(search.value.toLowerCase())
-  ).sort((a, b) => a.fabric_type.localeCompare(b.fabric_type));
+  return combinedStockItems.value.filter(item =>
+    item.nome.toLowerCase().includes(search.value.toLowerCase())
+  ).sort((a, b) => a.nome.localeCompare(b.nome));
 });
 
 const getMeterColor = (meters: number): string => {
@@ -91,14 +119,21 @@ const getMeterColor = (meters: number): string => {
   return 'text-success';
 }
 
+// Função que busca os dados dos dois lugares
 const fetchStock = async () => {
   loading.value = true;
   try {
-    const { data, error } = await supabase.from('stock').select('*');
-    if (error) throw error;
-    stockItems.value = data || [];
+    const [gcData, sbData] = await Promise.all([
+        gestaoApi.buscarProdutos(),
+        supabase.from('stock').select('fabric_type, unit_of_measure, meters_per_roll')
+    ]);
+
+    gestaoClickItems.value = gcData || [];
+    if (sbData.error) throw sbData.error;
+    supabaseStockItems.value = sbData.data || [];
+
   } catch (err: any) {
-    console.error(`Erro ao buscar estoque: ${err.message}`);
+    console.error(`Erro ao buscar e combinar estoques: ${err.message}`);
   } finally {
     loading.value = false;
   }

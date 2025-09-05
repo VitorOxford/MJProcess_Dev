@@ -166,6 +166,7 @@
 import { ref, reactive, onMounted, defineProps, defineEmits } from 'vue';
 import type { VForm } from 'vuetify/components';
 import { gestaoApi } from '@/api/gestaoClick';
+import { useUserStore } from '@/stores/user'; // 1. IMPORTAR A USER STORE
 
 defineProps({
   show: Boolean,
@@ -173,9 +174,10 @@ defineProps({
 
 const emit = defineEmits(['close', 'client-created']);
 
+const userStore = useUserStore(); // 2. INICIALIZAR A STORE
 const clientForm = ref<VForm | null>(null);
 const isSubmitting = ref(false);
-const isSearchingCnpj = ref(false); // Novo estado para o loading da busca de CNPJ
+const isSearchingCnpj = ref(false);
 const errorMessage = ref<string | null>(null);
 const estados = ref<{id: string, sigla: string}[]>([]);
 
@@ -232,9 +234,14 @@ const buscarCep = async () => {
     try {
         const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
         const data = await response.json();
-        if (data.erro) {
-            throw new Error('CEP não encontrado.');
+
+        // --- CORREÇÃO APLICADA AQUI ---
+        // Removemos a verificação "if (data.erro)" e verificamos diretamente
+        // se os dados essenciais (logradouro e localidade) foram retornados.
+        if (!data.logradouro || !data.localidade) {
+            throw new Error('CEP não encontrado ou inválido.');
         }
+        // --- FIM DA CORREÇÃO ---
 
         client.value.endereco.logradouro = data.logradouro;
         client.value.endereco.bairro = data.bairro;
@@ -257,7 +264,6 @@ const buscarCep = async () => {
     }
 }
 
-// --- NOVA FUNÇÃO PARA BUSCAR CNPJ ---
 const buscarCnpj = async () => {
     const cnpj = client.value.cpf_cnpj?.replace(/\D/g, '');
     if (!cnpj || cnpj.length !== 14) {
@@ -268,26 +274,21 @@ const buscarCnpj = async () => {
     errorMessage.value = null;
 
     try {
-        // Usando a BrasilAPI, que é pública e não necessita de proxy
         const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
         if (!response.ok) {
             throw new Error('CNPJ não encontrado ou inválido.');
         }
         const data = await response.json();
 
-        // Preenche os dados do cliente com o retorno da API
         client.value.nome = data.razao_social || '';
         client.value.email = data.email || '';
         client.value.telefone = data.ddd_telefone_1 || '';
-
-        // Preenche os dados de endereço
         client.value.endereco.cep = data.cep?.replace(/\D/g, '') || '';
         client.value.endereco.logradouro = data.logradouro || '';
         client.value.endereco.numero = data.numero || '';
         client.value.endereco.complemento = data.complemento || '';
         client.value.endereco.bairro = data.bairro || '';
 
-        // Se o CEP foi preenchido, chama a busca de CEP para completar cidade_id
         if (client.value.endereco.cep) {
             await buscarCep();
         }
@@ -315,6 +316,11 @@ const submit = async () => {
                 endereco: { ...client.value.endereco }
             }]
         };
+
+        // 3. ADICIONAR O ID DO VENDEDOR AO PAYLOAD
+        if (userStore.profile?.gestao_click_id) {
+          (payload as any).vendedor_id = userStore.profile.gestao_click_id;
+        }
 
       const newClient = await gestaoApi.cadastrarCliente(payload);
 

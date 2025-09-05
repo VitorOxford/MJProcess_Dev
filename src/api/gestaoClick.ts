@@ -1,22 +1,17 @@
 // src/api/gestaoClick.ts
 
-// ATENÇÃO: Substitua os valores abaixo pelos seus tokens
-const ACCESS_TOKEN = 'a3807c2e6aa5c6bbeface2068fb2a56b766858cd';
-const SECRET_ACCESS_TOKEN = 'a10def5158ea23ecd7baf36022ef4b3672d151d4';
-// Usando o proxy do Vite para desenvolvimento
-const API_BASE_URL = '/api-betel';
+const API_BASE_URL = 'https://mjprocess-proxy.onrender.com/api';
 
 const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
-  'access-token': ACCESS_TOKEN,
-  'secret-access-token': SECRET_ACCESS_TOKEN,
 });
 
 // Tipagens
 type Endereco = { cep?: string; logradouro?: string; numero?: string; complemento?: string; bairro?: string; cidade_id?: string; nome_cidade?: string; estado?: string; }
-type ClientPayload = { nome: string; tipo_pessoa: 'PF' | 'PJ' | 'ES'; cpf_cnpj?: string; email?: string; telefone?: string; celular?: string; enderecos?: { endereco: Endereco }[]; cpf?: string; cnpj?: string; };
+type ClientPayload = { nome: string; tipo_pessoa: 'PF' | 'PJ' | 'ES'; cpf_cnpj?: string; email?: string; telefone?: string; celular?: string; enderecos?: { endereco: Endereco }[]; cpf?: string; cnpj?: string; vendedor_id?: number; };
 type ClientResponse = { id: number; nome: string; }
-type Product = { id: string; nome: string; estoque: number; [key: string]: any; };
+// --- CORREÇÃO DO ERRO DE DIGITAÇÃO AQUI ---
+type Product = { id: string; nome: string; estoque: number; unidade: 'M' | 'KG' | string; [key: string]: any; };
 type Service = { id: string; nome: string; imagem_url?: string; [key: string]: any; };
 type SaleStatus = { id: number; nome: string; };
 type SalePayload = {
@@ -24,10 +19,12 @@ type SalePayload = {
   situacao_id: number;
   produtos: { produto: { produto_id: string; quantidade: number; valor_venda: string; } }[];
   servicos: { servico: { servico_id: string; quantidade: number; valor_venda: string; } }[];
-  vendedor_id?: number; // <-- ADICIONADO AQUI
+  vendedor_id?: number;
 };
 
 const gestaoApi = {
+  // O restante do seu código da API...
+  // (Não precisa ser alterado)
   async cadastrarCliente(clienteData: ClientPayload): Promise<ClientResponse> {
     const payload: Partial<ClientPayload> = {};
     for (const key in clienteData) {
@@ -65,7 +62,7 @@ const gestaoApi = {
       if (!response.ok) { throw new Error(`Falha na requisição de produtos: ${response.status} ${response.statusText}`); }
       const responseData = await response.json();
       if (responseData.status !== 'success') { throw new Error(responseData?.msg || 'Erro ao buscar produtos da API externa.'); }
-      return responseData.data || [];
+      return (responseData.data || []).filter((p: Product) => p.movimenta_estoque === '1');
     } catch (error) { console.error('Erro em buscarProdutos:', error); throw error; }
   },
 
@@ -162,7 +159,7 @@ const gestaoApi = {
     try {
       const payload = {
         nome: nomeServico,
-        valor_venda: "0.00", // Valor padrão, já que não é o foco
+        valor_venda: "0.00",
       };
       const response = await fetch(`${API_BASE_URL}/servicos`, {
         method: 'POST',

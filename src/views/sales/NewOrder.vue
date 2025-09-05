@@ -162,7 +162,7 @@
                               :rules="[rules.required]"
                             >
                               <template v-slot:item="{ props, item }">
-                                <v-list-item v-bind="props" :subtitle="`Estoque: ${item.raw.estoque} | Preço: ${formatCurrency(parseFloat(item.raw.valor_venda))}`"></v-list-item>
+                                <v-list-item v-bind="props" :subtitle="`Estoque: ${item.raw.estoque} ${getUnitForProduct(item.raw.nome)}`"></v-list-item>
                               </template>
                             </v-autocomplete>
                           </v-col>
@@ -179,7 +179,7 @@
                               :loading="loadingGestaoClickServices"
                             >
                                <template v-slot:item="{ props, item }">
-                                <v-list-item v-bind="props" :prepend-avatar="item.raw.imagem_url" :subtitle="`Preço: ${formatCurrency(parseFloat(item.raw.valor_venda))}`"></v-list-item>
+                                <v-list-item v-bind="props" :prepend-avatar="item.raw.imagem_url"></v-list-item>
                               </template>
                             </v-autocomplete>
                           </v-col>
@@ -199,25 +199,30 @@
 
                           <v-col cols="12">
                             <v-text-field
-                              v-model.number="editedItem.quantity_meters"
-                              label="Metragem (metros)"
+                              v-model.number="editedItem.quantity"
+                              :label="`Quantidade (${selectedProductUnit})`"
                               type="number"
                               variant="outlined"
                               density="compact"
                               :rules="[rules.required, rules.positive]"
                               :disabled="!editedItem.fabric_type"
                             ></v-text-field>
-                            <div v-if="selectedProductStock !== null" class="mt-n2 mb-4 px-2">
+
+                            <div v-if="selectedProductUnit === 'kg' && estimatedMeters" class="mt-n2 mb-4 px-2 text-right text-info">
+                                Rendimento aproximado: <strong>{{ estimatedMeters.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) }}m</strong>
+                            </div>
+
+                            <div v-if="selectedProductStock !== null" class="mb-4 px-2">
                               <div class="d-flex justify-space-between text-caption text-grey">
-                                <span v-if="editedItem.quantity_meters > selectedProductStock" class="text-error">
+                                <span v-if="editedItem.quantity > selectedProductStock" class="text-error">
                                   Atenção: Estoque ficará negativo!
                                 </span>
                                 <span v-else>Uso do estoque disponível:</span>
-                                <span>{{ selectedProductStock }}m</span>
+                                <span>{{ selectedProductStock }} {{ selectedProductUnit }}</span>
                               </div>
                               <v-progress-linear
-                                :model-value="((editedItem.quantity_meters || 0) / selectedProductStock) * 100"
-                                :color="getStockUsageColor(editedItem.quantity_meters)"
+                                :model-value="((editedItem.quantity || 0) / selectedProductStock) * 100"
+                                :color="getStockUsageColor(editedItem.quantity)"
                                 height="6"
                                 rounded
                               ></v-progress-linear>
@@ -340,7 +345,10 @@ type OrderItem = {
   fabric_type: string | null;
   stamp_ref_id: string | null;
   stamp_ref: string;
+  quantity: number | null;
   quantity_meters: number | null;
+  unit_of_measure: 'm' | 'kg';
+  rendimento: number | null;
   valor_unitario: number | null;
   stamp_image_url: string | null;
   notes: string;
@@ -355,9 +363,11 @@ type StampLibraryItem = {
 };
 type Feedback = { message: string; type: 'success' | 'error'; }
 type Client = { id: number; nome: string; }
-type GestaoClickProduct = { id: string; nome: string; estoque: number | string; valor_venda: string; };
+type GestaoClickProduct = { id: string; nome: string; estoque: number | string; valor_venda: string; unidade: string };
 type GestaoClickService = { id: string; nome: string; valor_venda: string; imagem_url?: string; };
 type SaleStatus = { id: number; nome: string; };
+type SupabaseStockInfo = { fabric_type: string, unit_of_measure: 'metro' | 'kg', rendimento: number | null };
+
 
 // --- Component State ---
 const userStore = useUserStore();
@@ -390,6 +400,8 @@ const gestaoClickServices = ref<GestaoClickService[]>([]);
 const loadingGestaoClickServices = ref(true);
 const saleStatuses = ref<SaleStatus[]>([]);
 const stampLibrary = ref<StampLibraryItem[]>([]);
+const supabaseStockInfo = ref<SupabaseStockInfo[]>([]);
+
 
 const tagColorMap = {
   'Desenvolvimento': '#40c4ff',
@@ -404,7 +416,10 @@ const createNewItem = (): OrderItem => ({
   fabric_type: null,
   stamp_ref_id: null,
   stamp_ref: '',
+  quantity: null,
   quantity_meters: null,
+  unit_of_measure: 'm',
+  rendimento: null,
   valor_unitario: null,
   stamp_image_url: null,
   notes: '',
@@ -418,46 +433,33 @@ const isEditing = computed(() => editedItemIndex.value !== null);
 
 const feedback = reactive<Feedback>({ message: '', type: 'success' });
 
-
 // --- Validation and Computed Properties ---
 const rules = {
   required: (v: any) => !!v || 'Campo obrigatório.',
   positive: (v: number | null) => (v != null && v > 0) || 'O valor deve ser maior que zero.',
-  positiveOrZero: (v: number | null) => (v != null && v >= 0) || 'O valor não pode ser negativo.'
 };
 
-watch(() => editedItem.value.stamp_ref_id, (serviceId) => {
-    if (!serviceId) {
-        editedItem.value.stamp_ref = '';
-        editedItem.value.stamp_image_url = null;
-        if (!editedItem.value.fabric_type) editedItem.value.valor_unitario = null;
-        return;
-    }
-    const service = gestaoClickServices.value.find(s => s.id === serviceId);
-    if (service) {
-        editedItem.value.stamp_ref = service.nome;
-        if (!editedItem.value.fabric_type) {
-            editedItem.value.valor_unitario = parseFloat(service.valor_venda) || 0;
-        }
-    }
-    const stamp = stampLibrary.value.find(s => s.gestao_click_service_id === serviceId);
-    if (stamp) {
-        editedItem.value.stamp_image_url = stamp.image_url;
-    } else {
-        editedItem.value.stamp_image_url = null;
-    }
+const getUnitForProduct = (productName: string) => {
+    const stockData = supabaseStockInfo.value.find(s => s.fabric_type === productName);
+    return stockData?.unit_of_measure === 'kg' ? 'kg' : 'm';
+};
+
+const selectedProductUnit = computed<'kg' | 'm'>(() => {
+    if (!editedItem.value.fabric_type) return 'm';
+    return getUnitForProduct(editedItem.value.fabric_type);
 });
 
-watch(() => editedItem.value.fabric_type, (productName) => {
-    if (!productName) {
-        const service = gestaoClickServices.value.find(s => s.id === editedItem.value.stamp_ref_id);
-        editedItem.value.valor_unitario = service ? (parseFloat(service.valor_venda) || 0) : null;
-        return;
+const selectedProductRendimento = computed(() => {
+    if (selectedProductUnit.value !== 'kg' || !editedItem.value.fabric_type) return null;
+    const stockData = supabaseStockInfo.value.find(s => s.fabric_type === editedItem.value.fabric_type);
+    return stockData?.rendimento || null;
+});
+
+const estimatedMeters = computed(() => {
+    if (selectedProductUnit.value !== 'kg' || !selectedProductRendimento.value || !editedItem.value.quantity) {
+        return null;
     }
-    const product = gestaoClickProducts.value.find(p => p.nome === productName);
-    if (product) {
-        editedItem.value.valor_unitario = parseFloat(product.valor_venda) || 0;
-    }
+    return editedItem.value.quantity * selectedProductRendimento.value;
 });
 
 const selectedProductStock = computed(() => {
@@ -473,25 +475,12 @@ const getStockUsageColor = (quantity: number | null) => {
   return 'success';
 }
 
-const isStep1Valid = computed(() => {
-  if (!orderHeader.customer_id) return false;
-  if (orderHeader.has_down_payment && !orderHeader.down_payment_proof_file) {
-    return false;
-  }
-  return true;
-});
+const isStep1Valid = computed(() => !!orderHeader.customer_id && (!orderHeader.has_down_payment || !!orderHeader.down_payment_proof_file));
+const isItemFormValid = computed(() => !!editedItem.value.fabric_type && !!editedItem.value.stamp_ref_id && !!editedItem.value.quantity && editedItem.value.quantity > 0);
 
-const isItemFormValid = computed(() => {
-  const item = editedItem.value;
-  const hasText = !!item.fabric_type && !!item.stamp_ref_id;
-  const hasNumbers = !!item.quantity_meters && item.quantity_meters > 0;
-  const hasStamp = !!item.stamp_image_url;
-  return hasText && hasNumbers && hasStamp;
-});
-
-// --- API Calls and Data Fetching ---
+// --- Watchers ---
 watch(clientSearch, (newValue) => {
-    if (!newValue) { return; }
+    if (!newValue) { clientList.value = []; return; }
     isSearchingClients.value = true;
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(async () => {
@@ -500,36 +489,64 @@ watch(clientSearch, (newValue) => {
     }, 500);
 });
 
+watch(() => editedItem.value.stamp_ref_id, (serviceId) => {
+    if (!serviceId) {
+        editedItem.value.stamp_ref = '';
+        editedItem.value.stamp_image_url = null;
+        if (!editedItem.value.fabric_type) editedItem.value.valor_unitario = null;
+        return;
+    }
+    const service = gestaoClickServices.value.find(s => s.id === serviceId);
+    if (service) editedItem.value.stamp_ref = service.nome;
+    const stamp = stampLibrary.value.find(s => s.gestao_click_service_id === serviceId);
+    editedItem.value.stamp_image_url = stamp ? stamp.image_url : null;
+});
+
+watch(() => editedItem.value.fabric_type, (productName) => {
+    const product = gestaoClickProducts.value.find(p => p.nome === productName);
+    editedItem.value.valor_unitario = product ? (parseFloat(product.valor_venda) || 0) : null;
+
+    if (productName) {
+        const stockData = supabaseStockInfo.value.find(s => s.fabric_type === productName);
+        editedItem.value.unit_of_measure = stockData?.unit_of_measure === 'kg' ? 'kg' : 'm';
+        editedItem.value.rendimento = stockData?.rendimento || null;
+    } else {
+        editedItem.value.unit_of_measure = 'm';
+        editedItem.value.rendimento = null;
+    }
+});
+
+// --- API Calls and Data Fetching ---
 const fetchInitialData = async () => {
     loadingGestaoClickProducts.value = true;
     loadingGestaoClickServices.value = true;
     try {
-        const [products, services, statuses, stamps] = await Promise.all([
+        const [products, services, statuses, stamps, stockInfo] = await Promise.all([
             gestaoApi.buscarProdutos(),
             gestaoApi.buscarServicos(),
             gestaoApi.getSituacoesVenda(),
-            supabase.from('stamp_library').select('*').eq('is_approved_for_sale', true)
+            supabase.from('stamp_library').select('*').eq('is_approved_for_sale', true),
+            supabase.from('stock').select('fabric_type, unit_of_measure, rendimento')
         ]);
 
         if (stamps.error) throw stamps.error;
+        if (stockInfo.error) throw stockInfo.error;
+
         stampLibrary.value = stamps.data || [];
+        supabaseStockInfo.value = stockInfo.data || [];
 
         const approvedStampServiceIds = new Set(stampLibrary.value.map(s => s.gestao_click_service_id));
         gestaoClickServices.value = services
             .filter(service => approvedStampServiceIds.has(service.id))
-            .map(service => {
-                const matchingStamp = stampLibrary.value.find(s => s.gestao_click_service_id === service.id);
-                return {
-                    ...service,
-                    imagem_url: matchingStamp ? matchingStamp.image_url : undefined
-                };
-            });
+            .map(service => ({
+                ...service,
+                imagem_url: stampLibrary.value.find(s => s.gestao_click_service_id === service.id)?.image_url
+            }));
 
         gestaoClickProducts.value = products;
         saleStatuses.value = statuses;
-
     } catch (error) {
-        showFeedback('Não foi possível carregar dados do Gestão Click ou do Catálogo de Estampas.', 'error');
+        showFeedback('Não foi possível carregar dados do Gestão Click ou do Catálogo.', 'error');
         console.error("Erro na busca de dados iniciais:", error);
     } finally {
         loadingGestaoClickProducts.value = false;
@@ -541,7 +558,7 @@ const handleClientCreated = (newClient: Client) => {
   clientList.value.unshift(newClient);
   orderHeader.customer_id = newClient.id;
   showClientModal.value = false;
-  showFeedback(`Cliente "${newClient.nome}" cadastrado com sucesso!`, 'success');
+  showFeedback(`Cliente "${newClient.nome}" cadastrado!`, 'success');
 };
 
 const fetchNextOrderNumber = async () => {
@@ -550,12 +567,8 @@ const fetchNextOrderNumber = async () => {
         const { data, error } = await supabase.rpc('get_next_order_number');
         if (error) throw error;
         nextOrderNumber.value = data;
-    } catch (e) {
-        console.error("Erro ao buscar próximo número do pedido:", e);
-        nextOrderNumber.value = 0;
-    } finally {
-        loadingNextOrderNumber.value = false;
-    }
+    } catch (e) { console.error("Erro ao buscar próximo número do pedido:", e); }
+    finally { loadingNextOrderNumber.value = false; }
 };
 
 const uploadFile = async (file: File | Blob, bucket: string, path: string): Promise<string> => {
@@ -565,14 +578,9 @@ const uploadFile = async (file: File | Blob, bucket: string, path: string): Prom
 };
 
 // --- Form and Stepper Logic ---
-
 const handleProofFileChange = (event: Event) => {
   const target = event.target as HTMLInputElement;
-  if (target.files && target.files[0]) {
-    orderHeader.down_payment_proof_file = target.files[0];
-  } else {
-    orderHeader.down_payment_proof_file = null;
-  }
+  orderHeader.down_payment_proof_file = (target.files && target.files[0]) ? target.files[0] : null;
 };
 
 const nextStep = async () => {
@@ -591,29 +599,29 @@ const prepareNewItem = async () => {
 
 const editItem = (index: number) => {
   editedItemIndex.value = index;
-  const itemToEdit = structuredClone(toRaw(orderItems.value[index]));
-  editedItem.value = itemToEdit;
+  editedItem.value = structuredClone(toRaw(orderItems.value[index]));
 }
 
 const removeItem = (index: number) => {
   orderItems.value.splice(index, 1);
-  if (editedItemIndex.value === index) {
-    prepareNewItem();
-  } else if (editedItemIndex.value !== null && editedItemIndex.value > index) {
-    editedItemIndex.value--;
-  }
+  if (editedItemIndex.value === index) prepareNewItem();
+  else if (editedItemIndex.value !== null && editedItemIndex.value > index) editedItemIndex.value--;
 }
 
 const saveOrUpdateItem = async () => {
-  if (itemForm.value) {
-    const { valid } = await itemForm.value.validate();
-    if (!valid || !isItemFormValid.value) {
-      showFeedback('Por favor, preencha todos os campos obrigatórios e selecione uma estampa válida.', 'error');
-      return;
-    }
+  const { valid } = await itemForm.value!.validate();
+  if (!valid || !isItemFormValid.value) {
+    showFeedback('Preencha todos os campos obrigatórios.', 'error');
+    return;
   }
 
   const rawItem = toRaw(editedItem.value);
+  if (rawItem.unit_of_measure === 'kg' && rawItem.rendimento && rawItem.quantity) {
+    rawItem.quantity_meters = rawItem.quantity * rawItem.rendimento;
+  } else {
+    rawItem.quantity_meters = rawItem.quantity;
+  }
+
   if (isEditing.value && editedItemIndex.value !== null) {
     orderItems.value[editedItemIndex.value] = structuredClone(rawItem);
   } else {
@@ -626,55 +634,38 @@ const saveOrUpdateItem = async () => {
 const sanitizeName = (name: string) => name.replace(/\s/g, '_').replace(/[^\w.\-]/g, '');
 
 const syncOrderWithGestaoClick = async () => {
-    if (!orderHeader.customer_id) {
-        throw new Error("ID do cliente não encontrado para sincronização.");
-    }
+    if (!orderHeader.customer_id) throw new Error("ID do cliente não encontrado.");
     const situacao = saleStatuses.value.find(s => s.nome.toLowerCase() === 'em aberto') || saleStatuses.value[0];
-    if (!situacao) {
-        throw new Error("Não foi possível encontrar uma situação de venda válida no Gestão Click.");
-    }
+    if (!situacao) throw new Error("Situação de venda 'Em Aberto' não encontrada.");
 
-    const salePayload: any = {
+    const salePayload: SalePayload = {
         cliente_id: orderHeader.customer_id,
         situacao_id: situacao.id,
         produtos: orderItems.value.map(item => {
             const product = gestaoClickProducts.value.find(p => p.nome === item.fabric_type);
-            if (!product) throw new Error(`Produto ${item.fabric_type} não encontrado no Gestão Click.`);
-            return {
-                produto: {
-                    produto_id: product.id,
-                    quantidade: item.quantity_meters || 0,
-                    valor_venda: (item.valor_unitario || 0).toFixed(2)
-                }
-            };
+            if (!product) throw new Error(`Produto ${item.fabric_type} não encontrado.`);
+            return { produto: { produto_id: product.id, quantidade: item.quantity || 0, valor_venda: (item.valor_unitario || 0).toFixed(2) }};
         }),
-        servicos: orderItems.value.map(item => ({
-            servico: {
-                servico_id: item.stamp_ref_id!,
-                quantidade: 1,
-                valor_venda: "0.00"
-            }
-        }))
+        servicos: orderItems.value.map(item => ({ servico: { servico_id: item.stamp_ref_id!, quantidade: 1, valor_venda: "0.00" }})),
     };
 
     if (userStore.profile?.gestao_click_id) {
         salePayload.vendedor_id = userStore.profile.gestao_click_id;
+    } else {
+        throw new Error("O ID de vendedor do Gestão Click não foi encontrado no seu perfil. Contate o administrador.");
     }
-
     await gestaoApi.cadastrarVenda(salePayload);
 
     for (const item of orderItems.value) {
         const product = gestaoClickProducts.value.find(p => p.nome === item.fabric_type);
         if (product) {
             const currentStock = parseFloat(product.estoque as string);
-            const quantityUsed = item.quantity_meters || 0;
-            const newStock = currentStock - quantityUsed;
-            product.estoque = newStock.toString(); // Atualiza o estado local para consistência
+            const newStock = currentStock - (item.quantity || 0);
+            product.estoque = newStock.toString();
             await gestaoApi.atualizarEstoqueProduto(product.id, newStock);
         }
     }
 };
-
 
 const submitLaunch = async () => {
   if (orderItems.value.length === 0) {
@@ -685,29 +676,27 @@ const submitLaunch = async () => {
   feedback.message = '';
   try {
     const selectedClient = clientList.value.find(c => c.id === orderHeader.customer_id);
-    if (!selectedClient) throw new Error("Cliente selecionado não encontrado na lista.");
+    if (!selectedClient) throw new Error("Cliente não encontrado.");
     await syncOrderWithGestaoClick();
+
     let proofPublicUrl: string | null = null;
     if (orderHeader.has_down_payment && orderHeader.down_payment_proof_file) {
       const file = orderHeader.down_payment_proof_file;
-      const baseName = sanitizeName(file.name);
-      const filePath = `proofs/${Date.now()}-${baseName}`;
+      const filePath = `proofs/${Date.now()}-${sanitizeName(file.name)}`;
       proofPublicUrl = await uploadFile(file, 'proofs', filePath);
     }
 
-    const itemsPayload = orderItems.value.map(item => {
-        if (!item.stamp_image_url) {
-            throw new Error(`O item "${item.stamp_ref}" está sem uma imagem associada.`);
-        }
-        return {
-            fabric_type: item.fabric_type,
-            stamp_ref: item.stamp_ref,
-            quantity_meters: item.quantity_meters,
-            stamp_image_url: item.stamp_image_url,
-            design_tag: item.design_tag,
-            notes: item.notes,
-        };
-    });
+    const itemsPayload = orderItems.value.map(item => ({
+        fabric_type: item.fabric_type,
+        stamp_ref: item.stamp_ref,
+        quantity_meters: item.quantity_meters,
+        stamp_image_url: item.stamp_image_url,
+        design_tag: item.design_tag,
+        notes: item.notes,
+        quantity_unit: item.quantity,
+        unit_of_measure: item.unit_of_measure,
+        rendimento: item.rendimento,
+    }));
 
     const { data: newOrderNumber, error: rpcError } = await supabase.rpc('create_launch_order', {
       p_customer_name: selectedClient.nome,
@@ -723,19 +712,14 @@ const submitLaunch = async () => {
     if (orderData) createdOrderId.value = orderData.id;
     createdOrderNumber.value = newOrderNumber;
     orderCreatedSuccess.value = true;
-    showFeedback("Pedido criado e sincronizado com sucesso!", "success");
+    showFeedback("Pedido criado e sincronizado!", "success");
   } catch (error: any) {
     console.error('Erro ao criar lançamento:', error);
-    let errorMessage = error.message || 'Erro desconhecido.';
-    if (errorMessage.includes('Gestão Click')) {
-        errorMessage = `Falha na integração com o sistema de gestão: ${errorMessage}`;
-    }
-    showFeedback(`Erro ao criar lançamento: ${errorMessage}`, 'error');
+    showFeedback(`Erro: ${error.message || 'Ocorreu uma falha.'}`, 'error');
   } finally {
     isSubmitting.value = false;
   }
 };
-
 
 const resetForm = () => {
   orderHeader.customer_id = null;
@@ -782,21 +766,16 @@ const imageToBase64 = (url: string): Promise<string> => new Promise((resolve, re
 const generateAndUploadQuotePdf = async () => {
     isGeneratingPdf.value = true;
     try {
-        const selectedClient = clientList.value.find(c => c.id === orderHeader.customer_id) || { nome: 'Cliente Desconhecido' };
-
-        const itemDetailsWithPrice = orderItems.value.map(item => {
-            const price = item.valor_unitario || 0;
-            const total = (item.quantity_meters || 0) * price;
-            return {
-                base: item.fabric_type,
-                estampa: item.stamp_ref,
-                quantidade: `${item.quantity_meters}m`,
-                valorUnit: formatCurrency(price),
-                valorTotal: formatCurrency(total)
-            };
-        });
-
+        const selectedClient = clientList.value.find(c => c.id === orderHeader.customer_id) || { nome: 'Cliente' };
+        const itemDetailsWithPrice = orderItems.value.map(item => ({
+            base: item.fabric_type,
+            estampa: item.stamp_ref,
+            quantidade: `${item.quantity}${item.unit_of_measure}`,
+            valorUnit: formatCurrency(item.valor_unitario),
+            valorTotal: formatCurrency((item.quantity || 0) * (item.valor_unitario || 0))
+        }));
         const grandTotal = itemDetailsWithPrice.reduce((sum, item) => sum + parseFloat(item.valorTotal.replace('R$', '').replace(/\./g, '').replace(',', '.')), 0);
+
         const doc = new jsPDF();
         const { width: pageWidth, height: pageHeight } = doc.internal.pageSize;
         const logoUrl = 'https://cdn.shopify.com/s/files/1/0661/4574/6991/files/Sem_nome_1080_x_800_px_1080_x_500_px_1080_x_400_px_1000_x_380_px_da020cf2-2bb9-4dac-8dd3-4548cfd2e5ae.png?v=1756811713';
@@ -806,6 +785,7 @@ const generateAndUploadQuotePdf = async () => {
         const logoHeight = (logoProps.height * logoWidth) / logoProps.width;
         doc.addImage(logoBase64, 'PNG', 15, 12, logoWidth, logoHeight);
         doc.setFontSize(18).setFont('helvetica', 'bold').text(`Pedido #${String(createdOrderNumber.value).padStart(4, '0')}`, pageWidth - 15, 25, { align: 'right' });
+
         autoTable(doc, {
             startY: 40,
             head: [['CLIENTE', 'VENDEDOR', 'DATA DE EMISSÃO']],
@@ -825,23 +805,22 @@ const generateAndUploadQuotePdf = async () => {
                 doc.setFontSize(10).setTextColor(100).text(`Assinatura do Cliente: ${selectedClient.nome}`, pageWidth / 2, signatureY + 5, { align: 'center' });
             }
         });
+
         const pdfBlob = doc.output('blob');
         const pdfFileName = `Pedido_${String(createdOrderNumber.value).padStart(4, '0')}_${selectedClient.nome}.pdf`;
         const url = URL.createObjectURL(pdfBlob);
         const a = document.createElement('a');
         a.href = url;
         a.download = pdfFileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
         URL.revokeObjectURL(url);
+
         const pdfPath = `sales_orders/${pdfFileName}`;
         const publicUrl = await uploadFile(pdfBlob, 'sales-orders', pdfPath);
         const { error: updateError } = await supabase.from('orders').update({ sales_order_pdf_url: publicUrl }).eq('id', createdOrderId.value);
         if (updateError) throw updateError;
-        showFeedback('Orçamento em PDF gerado, baixado e anexado com sucesso!', 'success');
+        showFeedback('Orçamento gerado e anexado!', 'success');
     } catch (error: any) {
-        console.error("Erro ao gerar PDF do orçamento:", error);
         showFeedback(`Erro ao gerar PDF: ${error.message}`, 'error');
     } finally {
         isGeneratingPdf.value = false;
