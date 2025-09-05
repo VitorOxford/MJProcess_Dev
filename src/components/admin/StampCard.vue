@@ -4,14 +4,46 @@
       variant="flat"
       draggable="true"
       @dragstart="onDragStart"
-      @click="openImageModal"
     >
+        <div v-if="stamp.is_approved_for_sale" class="approved-badge">
+            <v-icon color="white" size="small">mdi-check-decagram</v-icon>
+            <v-tooltip activator="parent" location="top">Aprovado para Venda</v-tooltip>
+        </div>
+
+        <v-menu>
+            <template v-slot:activator="{ props }">
+                <v-btn
+                    v-bind="props"
+                    icon="mdi-dots-vertical"
+                    variant="text"
+                    size="small"
+                    class="menu-button"
+                    @click.stop
+                ></v-btn>
+            </template>
+            <v-list density="compact" min-width="200">
+                <v-list-item @click.stop="$emit('toggle-approval', stamp)">
+                    <template #prepend>
+                        <v-icon :color="stamp.is_approved_for_sale ? 'orange' : 'success'">
+                            {{ stamp.is_approved_for_sale ? 'mdi-close-circle-outline' : 'mdi-check-circle-outline' }}
+                        </v-icon>
+                    </template>
+                    <v-list-item-title>{{ stamp.is_approved_for_sale ? 'Remover da Venda' : 'Aprovar para Venda' }}</v-list-item-title>
+                </v-list-item>
+                <v-list-item @click.stop="$emit('delete', stamp.id)">
+                    <template #prepend><v-icon color="red-lighten-2">mdi-delete-outline</v-icon></template>
+                    <v-list-item-title>Excluir Estampa</v-list-item-title>
+                </v-list-item>
+            </v-list>
+        </v-menu>
+
         <v-img
           :src="thumbnailUrl"
           @error="onImageError"
           aspect-ratio="1"
           cover
           class="stamp-image"
+          @click="openImageModal"
         >
             <template v-slot:placeholder>
                 <div class="d-flex align-center justify-center fill-height">
@@ -20,18 +52,7 @@
             </template>
         </v-img>
 
-        <div class="card-overlay">
-             <v-btn
-                icon="mdi-delete-outline"
-                variant="flat"
-                color="rgba(0,0,0,0.6)"
-                size="small"
-                class="delete-button"
-                @click.stop="$emit('delete', stamp.id)"
-            ></v-btn>
-        </div>
-
-        <v-card-title class="stamp-title">
+        <v-card-title class="stamp-title" @click="openImageModal">
             {{ stamp.name }}
         </v-card-title>
     </v-card>
@@ -50,10 +71,10 @@ import { supabase } from '@/api/supabase';
 import ImageModal from '@/components/ImageModal.vue';
 
 const props = defineProps({
-    stamp: { type: Object as () => { id: number; name: string; image_url: string; }, required: true }
+    stamp: { type: Object as () => { id: number; name: string; image_url: string; is_approved_for_sale: boolean; }, required: true }
 });
 
-defineEmits(['delete']);
+defineEmits(['delete', 'toggle-approval']);
 
 const showImageModal = ref(false);
 const thumbnailHasFailed = ref(false);
@@ -62,10 +83,8 @@ const openImageModal = () => {
   showImageModal.value = true;
 };
 
-// ** NOVO: Função para iniciar o arraste **
 const onDragStart = (event: DragEvent) => {
   if (event.dataTransfer) {
-    // Anexa o ID da estampa aos dados do evento de arraste
     event.dataTransfer.setData('text/plain', props.stamp.id.toString());
     event.dataTransfer.dropEffect = 'move';
   }
@@ -83,7 +102,7 @@ const thumbnailUrl = computed(() => {
     const { data } = supabase.storage
       .from('stamp-library')
       .getPublicUrl(filePath, {
-        transform: { width: 250, height: 250, resize: 'contain', quality: 75 },
+        transform: { width: 300, height: 300, resize: 'contain', quality: 80 },
       });
     return data.publicUrl;
   } catch (e) {
@@ -104,44 +123,51 @@ const onImageError = () => {
     border-radius: 12px;
     overflow: hidden;
     background-color: rgba(35, 35, 40, 0.9);
-    transition: transform 0.2s ease-out;
+    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    cursor: grab;
+    cursor: pointer;
 
-    &:active {
-      cursor: grabbing;
-    }
+    &:active { cursor: grabbing; }
 
     &:hover {
-        transform: translateY(-4px);
-        .card-overlay {
-            opacity: 1;
-        }
+        transform: translateY(-5px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.3);
     }
+}
+.approved-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    background-color: rgba(76, 175, 80, 0.9);
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.7);
+    border: 1px solid rgba(255,255,255,0.2);
+}
+.menu-button {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 2;
+    color: white;
+    background-color: rgba(30, 30, 35, 0.5);
+    backdrop-filter: blur(2px);
 }
 .stamp-image { transition: transform 0.3s ease; }
 .stamp-card:hover .stamp-image { transform: scale(1.05); }
 .stamp-title {
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     padding: 8px 12px;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     background-color: rgba(30, 30, 35, 0.8);
+    font-weight: 500;
 }
-.card-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: calc(100% - 40px);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    display: flex;
-    justify-content: flex-end;
-    align-items: flex-start;
-    padding: 8px;
-}
-.delete-button { color: white; }
 </style>

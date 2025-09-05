@@ -25,12 +25,11 @@
                 ></v-autocomplete>
 
                 <v-file-input
-                v-model="newStamp.file"
-                @change="handleFileChange"
-                label="Arquivo da Imagem (.png, .jpg)"
-                variant="outlined"
-                accept="image/png, image/jpeg"
-                :rules="[rules.fileRequired]"
+                  @change="handleFileChange"
+                  label="Arquivo da Imagem (.png, .jpg)"
+                  variant="outlined"
+                  accept="image/png, image/jpeg"
+                  :rules="[rules.fileRequired]"
                 ></v-file-input>
 
                 <v-img
@@ -40,6 +39,8 @@
                 contain
                 class="rounded border my-4"
                 ></v-img>
+
+                <button type="submit" style="display: none;"></button>
             </v-form>
         </v-card-text>
         <v-card-actions class="dialog-footer">
@@ -61,6 +62,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue';
+import type { VForm } from 'vuetify/components';
 import { supabase } from '@/api/supabase';
 import { gestaoApi } from '@/api/gestaoClick';
 
@@ -71,35 +73,44 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'save']);
 
-const form = ref(null);
+const form = ref<VForm | null>(null);
 const isSubmitting = ref(false);
-const imagePreviewUrl = ref(null);
+const imagePreviewUrl = ref<string | null>(null);
 
 const newStamp = reactive({
   name: '',
-  file: null,
+  file: null as File | null, // Armazenará um único arquivo
   folder_id: null,
 });
 
 const rules = {
-  required: (v) => !!v || 'Campo obrigatório.',
-  fileRequired: (v) => !!v || 'É obrigatório selecionar um arquivo.',
+  required: (v: string) => !!v || 'Campo obrigatório.',
+  // CORREÇÃO 3: Regra ajustada para verificar o estado reativo diretamente
+  fileRequired: () => !!newStamp.file || 'É obrigatório selecionar um arquivo.',
 };
 
 watch(() => props.show, (newVal) => {
     if (!newVal) {
         form.value?.reset();
+        form.value?.resetValidation();
         newStamp.file = null;
-        imagePreviewUrl.value = null;
+        newStamp.name = '';
+        newStamp.folder_id = null;
+        if (imagePreviewUrl.value) {
+            URL.revokeObjectURL(imagePreviewUrl.value);
+            imagePreviewUrl.value = null;
+        }
     }
 });
 
-const handleFileChange = (event) => {
-  const target = event.target;
-  if (imagePreviewUrl.value) URL.revokeObjectURL(imagePreviewUrl.value);
+const handleFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (imagePreviewUrl.value) {
+      URL.revokeObjectURL(imagePreviewUrl.value);
+  }
   if (target.files && target.files[0]) {
     const file = target.files[0];
-    newStamp.file = file;
+    newStamp.file = file; // Atribui o objeto File diretamente
     imagePreviewUrl.value = URL.createObjectURL(file);
   } else {
     newStamp.file = null;
@@ -108,19 +119,34 @@ const handleFileChange = (event) => {
 };
 
 const submitNewStamp = async () => {
-    if (isSubmitting.value) return;
+    if (isSubmitting.value || !form.value) return;
+
+    const { valid } = await form.value.validate();
+    if (!valid) return;
+
     isSubmitting.value = true;
     try {
-        const { valid } = await form.value.validate();
-        if (!valid) return;
-
         const file = newStamp.file;
+        if (!file) {
+            throw new Error("Arquivo não encontrado.");
+        }
         const stampName = newStamp.name;
 
         const newService = await gestaoApi.cadastrarServico(stampName);
+
         const filePath = `${Date.now()}-${file.name.replace(/\s/g, '_')}`;
-        await supabase.storage.from('stamp-library').upload(filePath, file);
-        const { data: publicUrlData } = supabase.storage.from('stamp-library').getPublicUrl(filePath);
+        // CORREÇÃO 4: Aguarda o upload finalizar e verifica por erros
+        const { error: uploadError } = await supabase.storage
+            .from('stamp-library')
+            .upload(filePath, file);
+
+        if (uploadError) {
+            throw uploadError;
+        }
+
+        const { data: publicUrlData } = supabase.storage
+            .from('stamp-library')
+            .getPublicUrl(filePath);
 
         await supabase.from('stamp_library').insert({
             gestao_click_service_id: newService.id,
@@ -131,13 +157,13 @@ const submitNewStamp = async () => {
 
         emit('save');
     } catch (err) {
-        console.error(err);
+        console.error("Erro ao cadastrar estampa:", err);
     } finally {
         isSubmitting.value = false;
     }
 };
-
 </script>
+
 <style scoped>
 .glassmorphism-card-dialog {
   backdrop-filter: blur(20px) !important;

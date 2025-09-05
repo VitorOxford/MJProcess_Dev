@@ -351,6 +351,7 @@ type StampLibraryItem = {
     gestao_click_service_id: string;
     name: string;
     image_url: string;
+    is_approved_for_sale: boolean;
 };
 type Feedback = { message: string; type: 'success' | 'error'; }
 type Client = { id: number; nome: string; }
@@ -507,19 +508,22 @@ const fetchInitialData = async () => {
             gestaoApi.buscarProdutos(),
             gestaoApi.buscarServicos(),
             gestaoApi.getSituacoesVenda(),
-            supabase.from('stamp_library').select('*')
+            supabase.from('stamp_library').select('*').eq('is_approved_for_sale', true)
         ]);
 
         if (stamps.error) throw stamps.error;
         stampLibrary.value = stamps.data || [];
 
-        gestaoClickServices.value = services.map(service => {
-            const matchingStamp = stampLibrary.value.find(s => s.gestao_click_service_id === service.id);
-            return {
-                ...service,
-                imagem_url: matchingStamp ? matchingStamp.image_url : undefined
-            };
-        });
+        const approvedStampServiceIds = new Set(stampLibrary.value.map(s => s.gestao_click_service_id));
+        gestaoClickServices.value = services
+            .filter(service => approvedStampServiceIds.has(service.id))
+            .map(service => {
+                const matchingStamp = stampLibrary.value.find(s => s.gestao_click_service_id === service.id);
+                return {
+                    ...service,
+                    imagem_url: matchingStamp ? matchingStamp.image_url : undefined
+                };
+            });
 
         gestaoClickProducts.value = products;
         saleStatuses.value = statuses;
@@ -653,7 +657,6 @@ const syncOrderWithGestaoClick = async () => {
         }))
     };
 
-    // *** CORREÇÃO APLICADA AQUI ***
     if (userStore.profile?.gestao_click_id) {
         salePayload.vendedor_id = userStore.profile.gestao_click_id;
     }
@@ -666,7 +669,7 @@ const syncOrderWithGestaoClick = async () => {
             const currentStock = parseFloat(product.estoque as string);
             const quantityUsed = item.quantity_meters || 0;
             const newStock = currentStock - quantityUsed;
-            product.estoque = newStock;
+            product.estoque = newStock.toString(); // Atualiza o estado local para consistência
             await gestaoApi.atualizarEstoqueProduto(product.id, newStock);
         }
     }
