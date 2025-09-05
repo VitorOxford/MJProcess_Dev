@@ -128,7 +128,7 @@
                             {{ item.design_tag }}
                           </v-chip>
                         </v-list-item-title>
-                        <v-list-item-subtitle>{{ item.fabric_type || 'Sem tecido' }} - {{ item.quantity_meters || 0 }}m</v-list-item-subtitle>
+                        <v-list-item-subtitle>{{ item.fabric_type || 'Sem tecido' }} - {{ item.quantity || 0 }}{{ item.unit_of_measure }}</v-list-item-subtitle>
                         <template v-slot:append>
                           <v-btn icon="mdi-delete-outline" variant="text" size="small" color="error" @click.stop="removeItem(index)"></v-btn>
                         </template>
@@ -152,17 +152,17 @@
                            <v-col cols="12" sm="6">
                             <v-autocomplete
                               v-model="editedItem.fabric_type"
-                              :items="gestaoClickProducts"
-                              item-title="nome"
-                              item-value="nome"
+                              :items="allProducts"
+                              item-title="name"
+                              item-value="name"
                               label="Produto (Base)"
                               variant="outlined"
                               density="compact"
-                              :loading="loadingGestaoClickProducts"
+                              :loading="loadingProducts"
                               :rules="[rules.required]"
                             >
                               <template v-slot:item="{ props, item }">
-                                <v-list-item v-bind="props" :subtitle="`Estoque: ${item.raw.estoque} ${getUnitForProduct(item.raw.nome)}`"></v-list-item>
+                                <v-list-item v-bind="props" :subtitle="`Estoque: ${item.raw.current_stock} ${item.raw.unit_of_measure}`"></v-list-item>
                               </template>
                             </v-autocomplete>
                           </v-col>
@@ -335,6 +335,14 @@ import ClientFormModal from '@/components/ClientFormModal.vue';
 import { gestaoApi } from '@/api/gestaoClick';
 
 // --- Type Definitions ---
+type Product = {
+  id: string;
+  gestao_click_id: string;
+  name: string;
+  current_stock: number;
+  unit_of_measure: 'metro' | 'kg';
+  rendimento: number | null;
+};
 type OrderHeader = {
     customer_id: number | null;
     customer_name: string;
@@ -347,7 +355,7 @@ type OrderItem = {
   stamp_ref: string;
   quantity: number | null;
   quantity_meters: number | null;
-  unit_of_measure: 'm' | 'kg';
+  unit_of_measure: 'metro' | 'kg';
   rendimento: number | null;
   valor_unitario: number | null;
   stamp_image_url: string | null;
@@ -363,10 +371,15 @@ type StampLibraryItem = {
 };
 type Feedback = { message: string; type: 'success' | 'error'; }
 type Client = { id: number; nome: string; }
-type GestaoClickProduct = { id: string; nome: string; estoque: number | string; valor_venda: string; unidade: string };
 type GestaoClickService = { id: string; nome: string; valor_venda: string; imagem_url?: string; };
 type SaleStatus = { id: number; nome: string; };
-type SupabaseStockInfo = { fabric_type: string, unit_of_measure: 'metro' | 'kg', rendimento: number | null };
+interface SalePayload {
+  cliente_id: number;
+  situacao_id: number;
+  produtos: { produto: { produto_id: string; quantidade: number; valor_venda: string; } }[];
+  servicos: { servico: { servico_id: string; quantidade: number; valor_venda: string; } }[];
+  vendedor_id?: number;
+}
 
 
 // --- Component State ---
@@ -393,15 +406,13 @@ const clientSearch = ref('');
 const isSearchingClients = ref(false);
 let searchTimeout: NodeJS.Timeout;
 
-// --- Gestao Click & Stamp Library Data State ---
-const gestaoClickProducts = ref<GestaoClickProduct[]>([]);
-const loadingGestaoClickProducts = ref(true);
+// --- Data State ---
+const allProducts = ref<Product[]>([]);
+const loadingProducts = ref(true);
 const gestaoClickServices = ref<GestaoClickService[]>([]);
 const loadingGestaoClickServices = ref(true);
 const saleStatuses = ref<SaleStatus[]>([]);
 const stampLibrary = ref<StampLibraryItem[]>([]);
-const supabaseStockInfo = ref<SupabaseStockInfo[]>([]);
-
 
 const tagColorMap = {
   'Desenvolvimento': '#40c4ff',
@@ -418,7 +429,7 @@ const createNewItem = (): OrderItem => ({
   stamp_ref: '',
   quantity: null,
   quantity_meters: null,
-  unit_of_measure: 'm',
+  unit_of_measure: 'metro',
   rendimento: null,
   valor_unitario: null,
   stamp_image_url: null,
@@ -439,33 +450,20 @@ const rules = {
   positive: (v: number | null) => (v != null && v > 0) || 'O valor deve ser maior que zero.',
 };
 
-const getUnitForProduct = (productName: string) => {
-    const stockData = supabaseStockInfo.value.find(s => s.fabric_type === productName);
-    return stockData?.unit_of_measure === 'kg' ? 'kg' : 'm';
-};
-
-const selectedProductUnit = computed<'kg' | 'm'>(() => {
-    if (!editedItem.value.fabric_type) return 'm';
-    return getUnitForProduct(editedItem.value.fabric_type);
+const selectedProduct = computed(() => {
+  if (!editedItem.value.fabric_type) return null;
+  return allProducts.value.find(p => p.name === editedItem.value.fabric_type);
 });
 
-const selectedProductRendimento = computed(() => {
-    if (selectedProductUnit.value !== 'kg' || !editedItem.value.fabric_type) return null;
-    const stockData = supabaseStockInfo.value.find(s => s.fabric_type === editedItem.value.fabric_type);
-    return stockData?.rendimento || null;
-});
+const selectedProductUnit = computed(() => selectedProduct.value?.unit_of_measure || 'metro');
+const selectedProductRendimento = computed(() => selectedProduct.value?.rendimento || null);
+const selectedProductStock = computed(() => selectedProduct.value?.current_stock ?? null);
 
 const estimatedMeters = computed(() => {
     if (selectedProductUnit.value !== 'kg' || !selectedProductRendimento.value || !editedItem.value.quantity) {
         return null;
     }
     return editedItem.value.quantity * selectedProductRendimento.value;
-});
-
-const selectedProductStock = computed(() => {
-    if (!editedItem.value.fabric_type) return null;
-    const product = gestaoClickProducts.value.find(p => p.nome === editedItem.value.fabric_type);
-    return product ? parseFloat(product.estoque as string) : null;
 });
 
 const getStockUsageColor = (quantity: number | null) => {
@@ -493,7 +491,6 @@ watch(() => editedItem.value.stamp_ref_id, (serviceId) => {
     if (!serviceId) {
         editedItem.value.stamp_ref = '';
         editedItem.value.stamp_image_url = null;
-        if (!editedItem.value.fabric_type) editedItem.value.valor_unitario = null;
         return;
     }
     const service = gestaoClickServices.value.find(s => s.id === serviceId);
@@ -503,37 +500,31 @@ watch(() => editedItem.value.stamp_ref_id, (serviceId) => {
 });
 
 watch(() => editedItem.value.fabric_type, (productName) => {
-    const product = gestaoClickProducts.value.find(p => p.nome === productName);
-    editedItem.value.valor_unitario = product ? (parseFloat(product.valor_venda) || 0) : null;
-
-    if (productName) {
-        const stockData = supabaseStockInfo.value.find(s => s.fabric_type === productName);
-        editedItem.value.unit_of_measure = stockData?.unit_of_measure === 'kg' ? 'kg' : 'm';
-        editedItem.value.rendimento = stockData?.rendimento || null;
-    } else {
-        editedItem.value.unit_of_measure = 'm';
-        editedItem.value.rendimento = null;
+    const product = allProducts.value.find(p => p.name === productName);
+    editedItem.value.valor_unitario = null; // Preço virá do Gestão Click futuramente
+    if (product) {
+        editedItem.value.unit_of_measure = product.unit_of_measure;
+        editedItem.value.rendimento = product.rendimento;
     }
 });
 
 // --- API Calls and Data Fetching ---
 const fetchInitialData = async () => {
-    loadingGestaoClickProducts.value = true;
+    loadingProducts.value = true;
     loadingGestaoClickServices.value = true;
     try {
-        const [products, services, statuses, stamps, stockInfo] = await Promise.all([
-            gestaoApi.buscarProdutos(),
+        const [productsRes, services, statuses, stamps] = await Promise.all([
+            supabase.from('products').select('*').order('name'),
             gestaoApi.buscarServicos(),
             gestaoApi.getSituacoesVenda(),
             supabase.from('stamp_library').select('*').eq('is_approved_for_sale', true),
-            supabase.from('stock').select('fabric_type, unit_of_measure, rendimento')
         ]);
 
+        if (productsRes.error) throw productsRes.error;
         if (stamps.error) throw stamps.error;
-        if (stockInfo.error) throw stockInfo.error;
 
+        allProducts.value = productsRes.data || [];
         stampLibrary.value = stamps.data || [];
-        supabaseStockInfo.value = stockInfo.data || [];
 
         const approvedStampServiceIds = new Set(stampLibrary.value.map(s => s.gestao_click_service_id));
         gestaoClickServices.value = services
@@ -543,13 +534,12 @@ const fetchInitialData = async () => {
                 imagem_url: stampLibrary.value.find(s => s.gestao_click_service_id === service.id)?.image_url
             }));
 
-        gestaoClickProducts.value = products;
         saleStatuses.value = statuses;
     } catch (error) {
-        showFeedback('Não foi possível carregar dados do Gestão Click ou do Catálogo.', 'error');
+        showFeedback('Não foi possível carregar dados essenciais.', 'error');
         console.error("Erro na busca de dados iniciais:", error);
     } finally {
-        loadingGestaoClickProducts.value = false;
+        loadingProducts.value = false;
         loadingGestaoClickServices.value = false;
     }
 };
@@ -638,13 +628,18 @@ const syncOrderWithGestaoClick = async () => {
     const situacao = saleStatuses.value.find(s => s.nome.toLowerCase() === 'em aberto') || saleStatuses.value[0];
     if (!situacao) throw new Error("Situação de venda 'Em Aberto' não encontrada.");
 
+    // Precisamos buscar os IDs dos produtos do Gestão Click
+    const productsFromDB = allProducts.value;
+
     const salePayload: SalePayload = {
         cliente_id: orderHeader.customer_id,
         situacao_id: situacao.id,
         produtos: orderItems.value.map(item => {
-            const product = gestaoClickProducts.value.find(p => p.nome === item.fabric_type);
+            const product = productsFromDB.find(p => p.name === item.fabric_type);
             if (!product) throw new Error(`Produto ${item.fabric_type} não encontrado.`);
-            return { produto: { produto_id: product.id, quantidade: item.quantity || 0, valor_venda: (item.valor_unitario || 0).toFixed(2) }};
+            // A API do Gestão Click pode esperar um preço, mesmo que seja zero
+            const price = item.valor_unitario !== null ? item.valor_unitario.toFixed(2) : "0.00";
+            return { produto: { produto_id: product.gestao_click_id, quantidade: item.quantity || 0, valor_venda: price }};
         }),
         servicos: orderItems.value.map(item => ({ servico: { servico_id: item.stamp_ref_id!, quantidade: 1, valor_venda: "0.00" }})),
     };
@@ -655,17 +650,8 @@ const syncOrderWithGestaoClick = async () => {
         throw new Error("O ID de vendedor do Gestão Click não foi encontrado no seu perfil. Contate o administrador.");
     }
     await gestaoApi.cadastrarVenda(salePayload);
-
-    for (const item of orderItems.value) {
-        const product = gestaoClickProducts.value.find(p => p.nome === item.fabric_type);
-        if (product) {
-            const currentStock = parseFloat(product.estoque as string);
-            const newStock = currentStock - (item.quantity || 0);
-            product.estoque = newStock.toString();
-            await gestaoApi.atualizarEstoqueProduto(product.id, newStock);
-        }
-    }
 };
+
 
 const submitLaunch = async () => {
   if (orderItems.value.length === 0) {
@@ -677,6 +663,7 @@ const submitLaunch = async () => {
   try {
     const selectedClient = clientList.value.find(c => c.id === orderHeader.customer_id);
     if (!selectedClient) throw new Error("Cliente não encontrado.");
+
     await syncOrderWithGestaoClick();
 
     let proofPublicUrl: string | null = null;
@@ -833,28 +820,3 @@ onMounted(() => {
     fetchInitialData();
 });
 </script>
-
-<style scoped lang="scss">
-.glassmorphism-card-order {
-  backdrop-filter: blur(15px);
-  background-color: rgba(25, 25, 30, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-}
-.stepper-transparent {
-  background-color: transparent !important;
-  box-shadow: none !important;
-  :deep(.v-stepper-item__title) { color: rgba(255, 255, 255, 0.8) !important; }
-  :deep(.v-stepper-item--selected .v-stepper-item__title) { color: white !important; }
-  :deep(.v-sheet) { background-color: transparent !important; box-shadow: none !important; }
-}
-.item-list-card {
-  background-color: rgba(255, 255, 255, 0.05);
-  height: 100%;
-}
-.item-form-card {
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-</style>

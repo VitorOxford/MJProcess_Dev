@@ -32,7 +32,7 @@ export const useUserStore = defineStore('user', {
       try {
         const { data: profileData, error } = await supabase
           .from('profiles')
-          .select('*, allowed_regions, gestao_click_id') // <-- MODIFICADO AQUI
+          .select('*, allowed_regions, gestao_click_id, store_id')
           .eq('id', this.session.user.id)
           .single();
 

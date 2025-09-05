@@ -2,228 +2,140 @@
   <v-container>
     <v-card class="glassmorphism-card-stock">
       <v-toolbar color="transparent">
-        <v-toolbar-title class="font-weight-bold">Configurar Tecidos (Unidade e Rendimento)</v-toolbar-title>
+        <v-toolbar-title class="font-weight-bold">Gerenciar Produtos e Estoque</v-toolbar-title>
         <v-spacer></v-spacer>
-        <v-btn color="primary" @click="openDialog()">
-          <v-icon start>mdi-plus</v-icon>
-          Configurar Tecido
+        <v-btn color="primary" @click="syncProducts" :loading="isSyncing">
+          <v-icon start>mdi-sync</v-icon>
+          Sincronizar com Gestão Click
         </v-btn>
       </v-toolbar>
 
       <v-data-table
         :headers="headers"
-        :items="stockItems"
+        :items="products"
         :loading="loading"
         class="elevation-0 bg-transparent"
         item-value="id"
       >
-        <template v-slot:item.unit_of_measure="{ item }">
-          <v-chip :color="item.unit_of_measure === 'kg' ? 'amber' : 'info'" variant="tonal" size="small">
-            {{ item.unit_of_measure }}
+        <template v-slot:item.current_stock="{ item }">
+          <v-chip :color="item.current_stock > 0 ? 'success' : 'error'" variant="tonal" size="small">
+            {{ item.current_stock.toLocaleString('pt-BR') }}
           </v-chip>
         </template>
-        <template v-slot:item.rendimento="{ item }">
-          <span v-if="item.unit_of_measure === 'kg'">{{ item.rendimento || 'N/A' }} m/kg</span>
-          <span v-else class="text-grey">-</span>
+        <template v-slot:item.unit_of_measure="{ item }">
+          <v-select
+            v-model="item.unit_of_measure"
+            :items="['metro', 'kg']"
+            density="compact"
+            hide-details
+            variant="outlined"
+            @update:modelValue="saveChanges(item)"
+            style="max-width: 120px;"
+          ></v-select>
         </template>
-        <template v-slot:item.actions="{ item }">
-          <v-btn icon="mdi-pencil-outline" variant="text" size="small" @click="openDialog(item)"></v-btn>
-           <v-btn icon="mdi-delete-outline" variant="text" size="small" color="error" @click="deleteItem(item)"></v-btn>
+        <template v-slot:item.rendimento="{ item }">
+          <v-text-field
+            v-if="item.unit_of_measure === 'kg'"
+            v-model.number="item.rendimento"
+            type="number"
+            density="compact"
+            hide-details
+            variant="outlined"
+            suffix="m/kg"
+            @blur="saveChanges(item)"
+            style="max-width: 130px;"
+          ></v-text-field>
+          <span v-else class="text-grey">-</span>
         </template>
       </v-data-table>
     </v-card>
-
-    <v-dialog v-model="dialog" max-width="600px" persistent>
-      <v-card class="glassmorphism-card">
-        <v-card-title class="dialog-header">
-          <span class="text-h5">{{ dialogTitle }}</span>
-        </v-card-title>
-        <v-card-text class="py-4">
-          <v-form ref="form">
-            <v-autocomplete
-              v-model="editedItem.gestao_click_id"
-              :items="gestaoClickProducts"
-              item-title="nome"
-              item-value="id"
-              label="Selecione o Tecido do Gestão Click"
-              variant="outlined"
-              :rules="[rules.required]"
-              @update:modelValue="onProductSelect"
-              :disabled="!!editedItem.id"
-              class="mb-4"
-            ></v-autocomplete>
-
-            <v-text-field
-              v-model="editedItem.fabric_type"
-              label="Nome do Tecido (preenchido automaticamente)"
-              variant="outlined"
-              readonly
-              class="mb-4"
-            ></v-text-field>
-
-            <v-select
-              v-model="editedItem.unit_of_measure"
-              :items="['metro', 'kg']"
-              label="Unidade de Medida"
-              variant="outlined"
-              :rules="[rules.required]"
-              class="mb-4"
-            ></v-select>
-
-            <v-text-field
-              v-if="editedItem.unit_of_measure === 'kg'"
-              v-model.number="editedItem.rendimento"
-              label="Rendimento (metros por kg)"
-              type="number"
-              variant="outlined"
-              hint="Exemplo: 3.5"
-              persistent-hint
-              :rules="[rules.required, rules.positive]"
-              class="mb-4"
-            ></v-text-field>
-
-            <v-text-field
-              v-model.number="editedItem.meters_per_roll"
-              label="Metros por Rolo (opcional)"
-              type="number"
-              variant="outlined"
-            ></v-text-field>
-          </v-form>
-        </v-card-text>
-        <v-card-actions class="dialog-footer">
-          <v-spacer></v-spacer>
-          <v-btn text @click="closeDialog">Cancelar</v-btn>
-          <v-btn color="primary" variant="flat" @click="save" :loading="isSaving">Salvar</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+     <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="3000">
+        {{ snackbar.text }}
+      </v-snackbar>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, reactive } from 'vue';
 import { supabase } from '@/api/supabase';
-import { gestaoApi } from '@/api/gestaoClick';
-import type { VForm } from 'vuetify/components';
 
-type StockItem = {
+type Product = {
   id: string;
-  fabric_type: string;
-  gestao_click_id: string;
+  name: string;
+  current_stock: number;
   unit_of_measure: 'metro' | 'kg';
   rendimento: number | null;
-  meters_per_roll: number | null;
 };
 
-type GestaoClickProduct = {
-  id: string;
-  nome: string;
-};
-
-const stockItems = ref<StockItem[]>([]);
-const gestaoClickProducts = ref<GestaoClickProduct[]>([]);
+const products = ref<Product[]>([]);
 const loading = ref(true);
-const dialog = ref(false);
-const isSaving = ref(false);
-const form = ref<VForm | null>(null);
-
-const editedItem = ref<Partial<StockItem>>({});
-
-const rules = {
-  required: (v: any) => !!v || 'Campo obrigatório.',
-  positive: (v: number) => v > 0 || 'O valor deve ser maior que zero.',
-};
+const isSyncing = ref(false);
+const snackbar = reactive({ show: false, text: '', color: '' });
 
 const headers = [
-  { title: 'Tecido', key: 'fabric_type', sortable: true },
-  { title: 'Unidade', key: 'unit_of_measure', sortable: true },
-  { title: 'Rendimento', key: 'rendimento', sortable: false },
-  { title: 'Ações', key: 'actions', sortable: false, align: 'end' },
+  { title: 'Produto (Gestão Click)', key: 'name', sortable: true },
+  { title: 'Estoque Atual', key: 'current_stock' },
+  { title: 'Unidade de Medida', key: 'unit_of_measure' },
+  { title: 'Rendimento (se KG)', key: 'rendimento' },
 ];
 
-const dialogTitle = computed(() => editedItem.value.id ? `Editar ${editedItem.value.fabric_type}` : 'Configurar Novo Tecido');
-
-const fetchData = async () => {
+const fetchProducts = async () => {
   loading.value = true;
   try {
-    const [stockData, productsData] = await Promise.all([
-      supabase.from('stock').select('*').order('fabric_type'),
-      gestaoApi.buscarProdutos()
-    ]);
-
-    if (stockData.error) throw stockData.error;
-    stockItems.value = stockData.data || [];
-    gestaoClickProducts.value = productsData || [];
+    const { data, error } = await supabase.from('products').select('*').order('name');
+    if (error) throw error;
+    products.value = data || [];
   } catch (err: any) {
-    alert(`Erro ao buscar dados: ${err.message}`);
+    showSnackbar(`Erro ao buscar produtos: ${err.message}`, 'error');
   } finally {
     loading.value = false;
   }
 };
 
-const openDialog = (item?: StockItem) => {
-  editedItem.value = item ? { ...item } : { unit_of_measure: 'metro' };
-  dialog.value = true;
-};
-
-const onProductSelect = (selectedId: string) => {
-    const product = gestaoClickProducts.value.find(p => p.id === selectedId);
-    if (product) {
-        editedItem.value.fabric_type = product.nome;
-    }
-}
-
-const closeDialog = () => {
-  dialog.value = false;
-};
-
-const deleteItem = async (item: StockItem) => {
-    if (confirm(`Tem certeza que deseja apagar a configuração do tecido "${item.fabric_type}"?`)) {
-        try {
-            const { error } = await supabase.from('stock').delete().eq('id', item.id);
-            if (error) throw error;
-            await fetchData();
-        } catch (err: any) {
-            alert(`Erro ao apagar: ${err.message}`);
-        }
-    }
-}
-
-const save = async () => {
-  if (isSaving.value) return;
-  const { valid } = await form.value!.validate();
-  if (!valid) return;
-
-  isSaving.value = true;
-
-  const payload = { ...editedItem.value };
-  if (payload.unit_of_measure !== 'kg') {
-      payload.rendimento = null;
-  }
-
+const saveChanges = async (item: Product) => {
   try {
-    const { error } = await supabase.from('stock').upsert(payload).select();
+    const payload = {
+      unit_of_measure: item.unit_of_measure,
+      // Garante que o rendimento seja nulo se a unidade não for kg
+      rendimento: item.unit_of_measure === 'kg' ? item.rendimento : null
+    };
+    const { error } = await supabase.from('products').update(payload).eq('id', item.id);
     if (error) throw error;
-
-    await fetchData();
-    closeDialog();
+    showSnackbar(`'${item.name}' atualizado com sucesso!`, 'success');
   } catch (err: any) {
-    alert(`Erro ao salvar: ${err.message}`);
-  } finally {
-    isSaving.value = false;
+    showSnackbar(`Erro ao salvar '${item.name}': ${err.message}`, 'error');
+    await fetchProducts(); // Recarrega para reverter a alteração visual
   }
 };
 
-onMounted(fetchData);
+const syncProducts = async () => {
+  isSyncing.value = true;
+  try {
+    const { data, error } = await supabase.functions.invoke('sync-units-from-gestao');
+    if (error) throw error;
+    showSnackbar(data.message || 'Sincronização concluída!', 'success');
+    await fetchProducts();
+  } catch (err: any) {
+    showSnackbar(`Erro na sincronização: ${err.message}`, 'error');
+  } finally {
+    isSyncing.value = false;
+  }
+};
+
+const showSnackbar = (text: string, color: string) => {
+  snackbar.text = text;
+  snackbar.color = color;
+  snackbar.show = true;
+};
+
+onMounted(fetchProducts);
 </script>
 
 <style scoped lang="scss">
-.glassmorphism-card-stock, .glassmorphism-card {
+.glassmorphism-card-stock {
   backdrop-filter: blur(15px);
   background-color: rgba(25, 25, 30, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
 }
-.dialog-header { border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-.dialog-footer { border-top: 1px solid rgba(255, 255, 255, 0.1); }
 </style>
