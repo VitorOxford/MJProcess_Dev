@@ -19,7 +19,13 @@ type ClientResponse = { id: number; nome: string; }
 type Product = { id: string; nome: string; estoque: number; [key: string]: any; };
 type Service = { id: string; nome: string; imagem_url?: string; [key: string]: any; };
 type SaleStatus = { id: number; nome: string; };
-type SalePayload = { cliente_id: number; situacao_id: number; produtos: { produto: { produto_id: string; quantidade: number; valor_venda: string; } }[]; servicos: { servico: { servico_id: string; quantidade: number; valor_venda: string; } }[]; };
+type SalePayload = {
+  cliente_id: number;
+  situacao_id: number;
+  produtos: { produto: { produto_id: string; quantidade: number; valor_venda: string; } }[];
+  servicos: { servico: { servico_id: string; quantidade: number; valor_venda: string; } }[];
+  vendedor_id?: number; // <-- ADICIONADO AQUI
+};
 
 const gestaoApi = {
   async cadastrarCliente(clienteData: ClientPayload): Promise<ClientResponse> {
@@ -150,7 +156,7 @@ const gestaoApi = {
         console.error('Erro em cadastrarVenda:', error);
         throw error;
     }
-  }, // <--- A CORREÇÃO ESTÁ AQUI. VÍRGULA ADICIONADA.
+  },
 
   async cadastrarServico(nomeServico: string): Promise<{ id: string; nome: string }> {
     try {

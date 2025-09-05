@@ -40,4 +40,5 @@ export type Profile = {
   avatar_url: string;
   role: 'admin' | 'vendedor' | 'designer' | 'producao' | 'user';
   allowed_regions?: ('SE' | 'NE')[];
+  gestao_click_id?: number;
 };

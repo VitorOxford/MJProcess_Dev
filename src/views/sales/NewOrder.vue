@@ -483,7 +483,7 @@ const isStep1Valid = computed(() => {
 const isItemFormValid = computed(() => {
   const item = editedItem.value;
   const hasText = !!item.fabric_type && !!item.stamp_ref_id;
-  const hasNumbers = !!item.quantity_meters && item.quantity_meters > 0 && item.valor_unitario !== null && item.valor_unitario >= 0;
+  const hasNumbers = !!item.quantity_meters && item.quantity_meters > 0;
   const hasStamp = !!item.stamp_image_url;
   return hasText && hasNumbers && hasStamp;
 });
@@ -630,7 +630,7 @@ const syncOrderWithGestaoClick = async () => {
         throw new Error("Não foi possível encontrar uma situação de venda válida no Gestão Click.");
     }
 
-    const salePayload = {
+    const salePayload: any = {
         cliente_id: orderHeader.customer_id,
         situacao_id: situacao.id,
         produtos: orderItems.value.map(item => {
@@ -648,10 +648,15 @@ const syncOrderWithGestaoClick = async () => {
             servico: {
                 servico_id: item.stamp_ref_id!,
                 quantidade: 1,
-                valor_venda: (item.valor_unitario || 0).toFixed(2)
+                valor_venda: "0.00"
             }
         }))
     };
+
+    // *** CORREÇÃO APLICADA AQUI ***
+    if (userStore.profile?.gestao_click_id) {
+        salePayload.vendedor_id = userStore.profile.gestao_click_id;
+    }
 
     await gestaoApi.cadastrarVenda(salePayload);
 
